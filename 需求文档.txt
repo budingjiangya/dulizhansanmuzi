@@ -1,0 +1,215 @@
+# 产品推荐博客网站｜完整技术方案说明书
+
+## 一、项目概述
+
+**项目名称**：产品推荐博客站点（前台内容门户 + RBAC 后台管理系统）
+**业务需求**
+
+1. 前台门户：首页卡片列表展示产品 / 博客推荐；封面两种模式：多张图片悬浮自动轮切、短视频‑后端随机抽帧作为静态封面，鼠标悬浮静音预览短视频；点击卡片跳转文章详情页。
+2. 管理后台：账号登录 (JWT 鉴权)；RBAC 角色权限（超级管理员 / 内容编辑）；管理员账号维护；登录日志记录；管理员密码重置；博客文章完整 CRUD、资源上传、首页推荐标记、上下架、排序；富文本编辑正文。
+
+> 
+> 定位：内容展示型站点；后期可扩展标签、搜索、访问统计。
+
+## 二、整体技术栈（2026 现代化版本）
+
+### 🔹前台门户（Web‑Portal，访客端）
+
+表格
+
+| 组件 | 选型 | 说明 |
+| --- | --- | --- |
+| 基础框架 | Vue 3.5 + Vite 6 | Vite6 构建速度快；Composition API + <script setup> |
+| 语言 | TypeScript 5.7 | 全部 TS 开发，类型约束 |
+| 路由 | Vue‑Router 4.5 | 前台路由：首页列表、文章详情页；404 页面 |
+| 状态管理 | Pinia 2.3 | 少量全局状态（站点基础配置） |
+| CSS 框架 | TailwindCSS v4 | 不引入额外 UI 组件库；自定义卡片、布局；JIT 按需生成样式 |
+| HTTP 请求 | Axios + 请求拦截器 | 封装统一请求、统一错误处理 |
+| 富文本渲染 | WangEditor‑v5‑for‑vue3（仅预览） | 渲染后台输出的 HTML 正文 |
+| 图标 | Iconify(Unplugin‑Icons) | 按需引入图标，减少打包体积 |
+| 部署产物 | 静态资源 | build 输出 dist，Nginx 直接托管静态页面 |
+
+> 
+> 前台重点交互组件：自定义博客卡片组件，内部实现两套 hover 逻辑（图片轮播、短视频悬浮静音播放预览）；懒加载列表；图片懒加载。
+
+### 🔹管理后台（Web‑Admin，内部运营）
+
+表格
+
+| 组件 | 选型 | 说明 |
+| --- | --- | --- |
+| 基础框架 | Vue 3.5 + Vite 6 + TypeScript5.7 | TS 严格模式开发 |
+| UI 组件库 | Naive‑UI 2.40+ | 优先 Naive‑UI；暗色主题友好；现代组件；替代 Element‑Plus |
+| 后台基础模板 | vue‑naive‑admin | 开源后台脚手架，基于 Naive‑UI；内置动态路由、权限基础；二次开发，不从零搭建后台 |
+| 路由 | Vue‑Router4.5 | 动态路由；根据当前登录角色动态挂载菜单 |
+| 状态管理 | Pinia 2.3 | 存放 Token、用户信息、角色权限列表 |
+| 鉴权存储 | LocalStorage + Pinia | 存储 JWT Token；前端路由守卫拦截未登录访问 |
+| HTTP 请求 | Axios 拦截器 | 统一添加 Authorization 请求头；Token 过期自动跳转登录页 |
+| 富文本编辑器 | WangEditor5 | 后台撰写博客正文，支持图片上传嵌入正文 |
+| 文件上传 | 自定义分片上传组件 | 适配大视频文件分片上传；进度显示；断点续传基础能力 |
+| 图标 | Unplugin‑Icons | 自动按需图标导入 |
+
+> 
+> 权限原则：**前端仅做菜单、按钮的显示隐藏；后端接口层面必须二次鉴权校验，防止绕过前端直接调用接口。**
+
+### 🔹后端服务（Backend‑NestJS，优先 TS 后端）
+
+表格
+
+| 组件 | 选型 | 说明 |
+| --- | --- | --- |
+| 服务框架 | NestJS 11 + TypeScript 5.7 | 模块化架构；依赖注入；适合中后台业务 |
+| ORM | Prism ORM 6 | **替代 TypeORM；2026 主流；schema 声明式定义数据库模型，自动迁移** |
+| 数据库 | MySQL 8.4 LTS | LTS 稳定版本；支持 json 字段存储简单数组数据 |
+| 身份认证鉴权 | @nestjs/jwt + Passport‑JWT | JWT 无状态鉴权；自定义 RBAC 守卫做接口权限校验；**不在 Token 存放完整权限数组，每次请求读取数据库角色权限** |
+| 密码加密 | bcrypt | 管理员密码哈希加密存储，禁止明文保存 |
+| 视频处理 | FFmpeg + FFprobe | 业务关键点：上传视频之后读取视频总时长，随机取时间点截取封面帧图片；提取元信息 |
+| 对象文件存储 | MinIO（自建） / 阿里云 OSS | 二选一；推荐 MinIO 自建对象存储，统一管理图片、短视频资源；不建议直接存本地服务器磁盘 |
+| API 文档 | Swagger(OpenAPI) | 自动生成后端接口文档，前后端对接调试使用 |
+| 校验框架 | class‑validator + class‑transformer | DTO 入参校验，统一请求参数校验 |
+| 日志业务表 | 业务登录日志表 | 记录管理员登录 IP、登录时间、登录结果；**不是系统日志，是业务日志入库** |
+| 部署运行 | PM2 / Docker (推荐) | Docker 容器打包 NestJS 后端服务；服务器预先安装 FFmpeg 环境；Ubuntu 22.04 |
+
+> 
+> 备选后端：SpringBoot3.4 (Spring‑Boot‑Starter‑Web) + Mybatis‑Plus3.6 + MySQL8.4LTS；适合 Java 团队维护；同样调用宿主机 FFmpeg 进程完成视频抽帧。
+> 本项目优先采用 NestJS + Prisma 技术路线，前后端统一 TypeScript 技术栈。
+
+## 三、数据库模型 (Prisma Schema)
+
+```
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id          Int      @id @default(autoincrement())
+  username    String   @unique @db.VarChar(64)
+  password    String   @db.VarChar(128)
+  realName    String   @db.VarChar(64)
+  roleId      Int
+  status      Int      @default(1) //1启用，0禁用
+  lastLoginAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  role       AdminRole        @relation(fields: [roleId], references: [id])
+  loginLogs  AdminLoginLog[]
+}
+
+model AdminRole {
+  id          Int    @id @default(autoincrement())
+  roleName    String @db.VarChar(64) // "超级管理员" "内容编辑"
+  permissions String @db.Text //JSON字符串，存储权限标识数组
+  adminUsers  AdminUser[]
+}
+
+model AdminLoginLog {
+  id            Int      @id @default(autoincrement())
+  adminUserId   Int
+  loginIp       String   @db.VarChar(128)
+  loginResult   Int      //1登录成功；0登录失败
+  loginTime     DateTime @default(now())
+  adminUser     AdminUser @relation(fields:[adminUserId], references:[id])
+}
+
+model BlogArticle {
+  id              Int      @id @default(autoincrement())
+  title           String   @db.VarChar(255)
+  shortDesc       String   @db.Text
+  coverType       String   @db.VarChar(32) // "image" 多张图轮播 / "video"视频悬浮预览
+  coverImages     String?  @db.Text //json数组存储多张封面图片访问地址
+  coverVideo      String?  @db.VarChar(512) //短视频资源地址
+  coverVideoFrame String?  @db.VarChar(512) //ffmpeg随机截取静态封面帧
+  content         String   @db.LongText //富文本HTML正文
+  isRecommend     Boolean  @default(false) //是否首页推荐
+  isPublish       Boolean  @default(false) //上下架状态
+  sort            Int      @default(0) //首页排序权重，数字越大越靠前
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+```
+
+## 四、后端核心业务说明
+
+### 4.1 RBAC 权限管控
+
+角色固定两类：
+
+1. **超级管理员**：管理员账号 CRUD、角色管理、登录日志查询、重置密码；博客文章全部操作权限。
+2. **内容编辑**：仅博客文章新增、编辑、删除；**禁止访问账号管理模块、登录日志接口；后端守卫拦截接口访问**。
+
+> 
+> JWT 设计要点：token payload 只保存 `userId、roleId`；每次接口请求后端实时查询该角色对应的权限列表；不要把完整权限放 JWT 载荷，避免权限变更之后旧 Token 依旧拥有旧权限。
+
+### 4.2 视频上传 & FFmpeg 随机抽帧封面流程
+
+1. 后台管理端上传 mp4 短视频；后端接收文件存入对象存储 MinIO/OSS；拿到视频访问地址。
+2. 使用`ffprobe`解析视频，读取视频总时长。
+3. 在 `0 ~ (totalDuration‑1)` 区间随机生成抽帧时间点。
+4. ffmpeg 执行抽帧命令，输出一张 jpg 封面帧；上传这张截图到对象存储；保存访问地址写入字段`coverVideoFrame`。
+5. 返回资源地址保存到博客文章记录。
+
+### 4.3 登录日志逻辑
+
+无论登录成功还是账号密码错误，都写入`AdminLoginLog`，记录登录 IP，登录结果；后台仅超级管理员可以分页查看登录日志；支持按时间筛选。
+
+### 4.4 管理员重置密码
+
+超级管理员可以对其他管理员账号重置密码；重置后后端自动 bcrypt 加密；用户后续登录后可以自行修改个人密码。
+
+## 五、前端门户交互详细说明
+
+### 博客卡片组件（首页核心）
+
+1. **封面类型 = image（多张图片轮切）**
+
+- 默认渲染第一张封面；
+- `mouseenter`开启定时器，定时切换数组里面的封面图片；
+- `mouseleave`停止轮播，切回第一张封面。
+
+2. **封面类型 = video（短视频悬浮预览）**
+
+- 默认展示后端 FFmpeg 截取的静态帧图片（避免页面直接加载大量视频资源拖慢首页）；
+- `mouseenter`：开始加载 video 资源，设置`muted、autoplay`静音自动播放短视频预览；
+- `mouseleave`：立刻暂停 video，隐藏视频 DOM，恢复展示静态帧图片；
+
+> 
+> **性能优化：hover 之后才去请求加载视频资源；首页列表不预加载全部视频。**
+
+点击卡片跳转路由至文章详情页；详情页渲染富文本正文，可展示正文内嵌图片、视频。
+
+## 六、目录整体项目目录规划
+
+```
+product‑blog‑recommend
+├── backend‑nest               # NestJS11后端服务（Prisma+MySQL8.4）
+│   ├── src
+│   │   ├── modules
+│   │   │   ├── auth           # JWT登录、鉴权守卫
+│   │   │   ├── admin‑user     #管理员账号、角色管理
+│   │   │   ├── login‑log      #登录日志业务模块
+│   │   │   ├── blog           #博客文章业务，FFmpeg视频抽帧工具
+│   │   │   └── file‑storage   #对象存储上传封装(MinIO/OSS)
+│   │   ├── common             #全局守卫、过滤器、工具类
+│   │   └── prisma             #prisma schema、迁移脚本
+│   ├── docker                 #docker部署配置
+│   └── .env                   #环境变量：数据库、对象存储密钥
+├── web‑portal                 #前台门户 Vue3.5 + Vite6 + TailwindCSS v4 + TS
+│   ├── src
+│   │   ├── components
+│   │   │   └── BlogCard.vue   #核心博客卡片组件（轮播/悬浮视频预览）
+│   │   ├── views
+│   │   │   ├── HomeView.vue   #首页推荐列表
+│   │   │   └── ArticleDetail.vue #文章详情页面
+│   │   └── api
+└── web‑admin                  #后台管理系统 vue‑naive‑admin二次开发
+    ├── src
+    │   ├── views
+    │   │   ├── system         #账号管理、角色、登录日志页面
+    │   │   └── blog‑manage    #博客文章管理、富文本编辑上传页面
+    │   └── permission         #前端路由&按钮权限控制
+```

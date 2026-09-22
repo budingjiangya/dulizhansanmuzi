@@ -1,0 +1,30 @@
+{
+  "name": "@sanmuzi/web-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "前台内容门户：Vue 3.5 + Vite 6 + TailwindCSS v4，首页卡片列表（多图轮播 / 视频悬浮静音预览）+ 文章详情",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "build:only": "vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "vue-tsc -b --force"
+  },
+  "dependencies": {
+    "@sanmuzi/contracts": "workspace:*",
+    "axios": "1.20.0",
+    "pinia": "2.3.1",
+    "vue": "3.5.43",
+    "vue-router": "4.5.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.14",
+    "@types/node": "22.18.1",
+    "@vitejs/plugin-vue": "5.2.4",
+    "tailwindcss": "4.1.14",
+    "typescript": "5.7.3",
+    "vite": "6.3.5",
+    "vue-tsc": "2.2.10"
+  }
+}

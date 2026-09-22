@@ -1,0 +1,223 @@
+@import 'tailwindcss';
+
+/*
+ * 设计取向：排版驱动，装饰最小化。
+ * 只保留三样东西——留白、字号层级、一条细分隔线；不使用卡片边框、阴影堆叠、渐变 Hero。
+ */
+
+@theme {
+  --color-paper: #faf8f5;
+  --color-paper-raised: #ffffff;
+  --color-ink: #171614;
+  --color-ink-soft: #4a4744;
+  --color-ink-muted: #857f78;
+  --color-rule: #e5e0d8;
+  --color-accent: #9c3d1e;
+  --color-accent-soft: #f2e7e0;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-serif: 'Songti SC', 'Source Han Serif SC', 'Noto Serif SC', Georgia, 'Times New Roman', serif;
+
+  --radius-card: 4px;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  img {
+    display: block;
+    max-width: 100%;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  /* 站点主容器：全站统一横向节奏 */
+  .shell {
+    width: 100%;
+    max-width: 1200px;
+    margin-inline: auto;
+    padding-inline: 1.25rem;
+  }
+
+  @media (min-width: 768px) {
+    .shell {
+      padding-inline: 2.5rem;
+    }
+  }
+
+  /* 首页卡片网格：12 栏错落排布，奇数位跨 7 栏形成主次对比 */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.75rem 2rem;
+  }
+
+  @media (min-width: 768px) {
+    .card-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 4rem 2.5rem;
+    }
+
+    .card-grid > *:nth-child(odd) {
+      grid-column: span 7;
+    }
+
+    .card-grid > *:nth-child(even) {
+      grid-column: span 5;
+    }
+  }
+
+  /* 富文本正文：详情页排版，全部靠字号与间距区分层级 */
+  .prose-article {
+    font-size: 1.0625rem;
+    line-height: 1.9;
+    color: var(--color-ink-soft);
+  }
+
+  .prose-article > * + * {
+    margin-top: 1.35em;
+  }
+
+  .prose-article h2 {
+    margin-top: 2.4em;
+    margin-bottom: 0.7em;
+    font-family: var(--font-serif);
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--color-ink);
+  }
+
+  .prose-article h3 {
+    margin-top: 2em;
+    font-size: 1.175rem;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+
+  .prose-article p {
+    margin: 0;
+  }
+
+  .prose-article strong {
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+
+  .prose-article a {
+    color: var(--color-accent);
+    border-bottom: 1px solid currentColor;
+  }
+
+  .prose-article img,
+  .prose-article video {
+    width: 100%;
+    border-radius: var(--radius-card);
+    margin-block: 2em;
+  }
+
+  .prose-article blockquote {
+    margin: 2em 0;
+    padding-left: 1.25rem;
+    border-left: 2px solid var(--color-accent);
+    font-family: var(--font-serif);
+    font-size: 1.0625rem;
+    color: var(--color-ink);
+  }
+
+  .prose-article blockquote p + p {
+    margin-top: 0.8em;
+  }
+
+  .prose-article ul,
+  .prose-article ol {
+    padding-left: 1.35em;
+  }
+
+  .prose-article ul {
+    list-style: disc;
+  }
+
+  .prose-article ol {
+    list-style: decimal;
+  }
+
+  .prose-article li + li {
+    margin-top: 0.5em;
+  }
+
+  .prose-article hr {
+    margin-block: 2.5em;
+    border: 0;
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .prose-article code {
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    background-color: color-mix(in srgb, var(--color-rule) 55%, transparent);
+    font-size: 0.9em;
+  }
+
+  .prose-article table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+
+  .prose-article th,
+  .prose-article td {
+    padding: 0.6em 0.75em;
+    border-bottom: 1px solid var(--color-rule);
+    text-align: left;
+  }
+}
+
+@layer utilities {
+  /* 细分隔线：全站唯一的分隔手段 */
+  .rule-top {
+    border-top: 1px solid var(--color-rule);
+  }
+
+  .rule-bottom {
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

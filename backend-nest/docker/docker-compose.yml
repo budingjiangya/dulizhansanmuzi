@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------------------
+# 产品推荐博客站点 —— 本地一键编排（后端 + MySQL 8.4 + Redis）
+# 使用方式（在 backend-nest 目录下执行）：
+#   docker compose -f docker/docker-compose.yml up -d --build
+#   docker compose -f docker/docker-compose.yml exec backend pnpm prisma:deploy
+#   docker compose -f docker/docker-compose.yml exec backend pnpm seed
+# 说明：backend 的 .env 通过 env_file 注入；容器内 MySQL/Redis 地址会覆盖宿主配置。
+# ---------------------------------------------------------------------------
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: sanmuzi-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: sanmuzi_root_pwd
+      MYSQL_DATABASE: dulizhan
+      MYSQL_USER: sanmuzi
+      MYSQL_PASSWORD: sanmuzi_pwd
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - '3307:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-usanmuzi', '-psanmuzi_pwd']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: sanmuzi-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', 'sanmuzi_redis_pwd']
+    ports:
+      - '6380:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', 'sanmuzi_redis_pwd', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: sanmuzi-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      # 容器内直连 compose 网络中的 mysql / redis（覆盖 .env 中的外部地址）
+      DATABASE_URL: mysql://sanmuzi:sanmuzi_pwd@mysql:3306/dulizhan
+      REDIS_URL: redis://:sanmuzi_redis_pwd@redis:6379/0
+      STORAGE_DRIVER: local
+      PUBLIC_BASE_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
+      SEED_DOWNLOAD_VIDEO: 'true'
+    ports:
+      - '3000:3000'
+    volumes:
+      # 上传文件与演示素材持久化
+      - uploads-data:/app/storage/uploads
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/api/portal/site-config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  mysql-data:
+  redis-data:
+  uploads-data:

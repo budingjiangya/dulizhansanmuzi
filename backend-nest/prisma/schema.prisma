@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// 管理员账号
+model AdminUser {
+  id          Int       @id @default(autoincrement())
+  username    String    @unique @db.VarChar(64)
+  password    String    @db.VarChar(128)
+  realName    String    @db.VarChar(64)
+  roleId      Int
+  status      Int       @default(1) /// 1 启用，0 禁用
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  role      AdminRole       @relation(fields: [roleId], references: [id])
+  loginLogs AdminLoginLog[]
+
+  @@index([roleId])
+  @@map("admin_user")
+}
+
+/// 角色（权限以 JSON 字符串数组存放）
+model AdminRole {
+  id          Int      @id @default(autoincrement())
+  roleName    String   @db.VarChar(64)
+  permissions String   @db.Text /// JSON 字符串，存储权限标识数组
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  adminUsers AdminUser[]
+
+  @@map("admin_role")
+}
+
+/// 业务登录日志（成功与失败都记录）
+model AdminLoginLog {
+  id          Int      @id @default(autoincrement())
+  adminUserId Int
+  loginIp     String   @db.VarChar(128)
+  loginResult Int /// 1 登录成功，0 登录失败
+  loginTime   DateTime @default(now())
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([loginTime])
+  @@map("admin_login_log")
+}
+
+/// 博客文章
+model BlogArticle {
+  id              Int      @id @default(autoincrement())
+  title           String   @db.VarChar(255)
+  shortDesc       String   @db.Text
+  coverType       String   @db.VarChar(32) /// image 多图轮播 / video 视频悬浮预览
+  coverImages     String?  @db.Text /// JSON 数组，多张封面图片访问地址
+  coverVideo      String?  @db.VarChar(512) /// 短视频资源地址
+  coverVideoFrame String?  @db.VarChar(512) /// ffmpeg 随机截取的静态封面帧
+  content         String   @db.LongText /// 富文本 HTML 正文
+  isRecommend     Boolean  @default(false) /// 是否首页推荐
+  isPublish       Boolean  @default(false) /// 上下架状态
+  sort            Int      @default(0) /// 首页排序权重，数字越大越靠前
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isRecommend, isPublish, sort])
+  @@index([createdAt])
+  @@map("blog_article")
+}
