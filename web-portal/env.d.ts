@@ -18,3 +18,13 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/**
+ * @wangeditor/editor-for-vue 5.1.12 未在 package.json 的 exports 中声明 types 条件，
+ * TS 在 moduleResolution=Bundler 下无法解析到 dist/src/index.d.ts，这里补一份等价声明。
+ */
+declare module '@wangeditor/editor-for-vue' {
+  import type { DefineComponent } from 'vue'
+  export const Editor: DefineComponent<Record<string, unknown>, Record<string, unknown>, unknown>
+  export const Toolbar: DefineComponent<Record<string, unknown>, Record<string, unknown>, unknown>
+}

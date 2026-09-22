@@ -221,3 +221,19 @@
     display: none;
   }
 }
+
+/*
+ * 管理后台样式（/admin 区域）
+ * - 导入完整 tailwindcss：v4 的默认主题变量（--spacing 等）必须加载，
+ *   否则依赖主题刻度的 gap-* / h-[Npx] / grid-cols-* 不会生成，后台布局会错位。
+ * - 后台组件为 Naive-UI + 工具类，Tailwind 的 base 重置很轻量（margin/border-style/box-sizing），
+ *   不会破坏 Naive-UI 组件样式。
+ * - 放在最后 import，确保后台自身的 base 与组件样式优先级正确。
+ */
+@import './admin.css';
+
+/* 后台区域内的中文字体与滚动条由 admin.css 负责，这里只保证后台容器占满视口 */
+#admin-app {
+  height: 100vh;
+  width: 100%;
+}

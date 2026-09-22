@@ -8,9 +8,8 @@ build/
 *.tsbuildinfo
 contracts/dist/
 
-# backend runtime
-backend-nest/storage/uploads/*
-!backend-nest/storage/uploads/.gitkeep
+# backend runtime（上传产物不入库；storage 目录结构下的 .gitkeep 由 git 显式跟踪）
+backend-nest/storage/uploads/
 backend-nest/logs/
 
 # env
@@ -28,3 +27,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# UI 渲染验证截图与临时产物（本地生成，不入库）
+scripts/artifacts/

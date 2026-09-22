@@ -2,7 +2,7 @@
   "name": "dulizhan-sanmuzi",
   "version": "1.0.0",
   "private": true,
-  "description": "产品推荐博客站点 — 前台内容门户 + RBAC 后台管理系统",
+  "description": "产品推荐博客站点 — 前台内容门户 + RBAC 后台管理系统（单应用双区域）",
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=20.11.0"
@@ -14,12 +14,16 @@
     "backend:prisma:generate": "pnpm --filter @sanmuzi/backend prisma:generate",
     "backend:prisma:migrate": "pnpm --filter @sanmuzi/backend prisma:migrate",
     "backend:seed": "pnpm --filter @sanmuzi/backend seed",
+    "backend:cache:flush": "pnpm --filter @sanmuzi/backend cache:flush",
     "portal:dev": "pnpm --filter @sanmuzi/web-portal dev",
     "portal:build": "pnpm --filter @sanmuzi/web-portal build",
-    "admin:dev": "pnpm --filter @sanmuzi/web-admin dev",
-    "admin:build": "pnpm --filter @sanmuzi/web-admin build",
-    "dev": "pnpm --parallel --filter \"./backend-nest\" --filter \"./web-portal\" --filter \"./web-admin\" dev",
+    "dev": "pnpm --parallel --filter \"./backend-nest\" --filter \"./web-portal\" dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "verify:admin-ui": "node scripts/verify-admin-ui.mjs --url=http://localhost:5173 --adminPath=/admin",
+    "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.11.0"
   }
 }

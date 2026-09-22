@@ -1,1 +1,1 @@
-placeholder
+! 强制跟踪本目录结构（.gitignore 忽略了 backend-nest/storage/uploads/ 下的上传产物）

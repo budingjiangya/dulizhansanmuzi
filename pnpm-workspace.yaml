@@ -2,4 +2,3 @@ packages:
   - 'contracts'
   - 'backend-nest'
   - 'web-portal'
-  - 'web-admin'

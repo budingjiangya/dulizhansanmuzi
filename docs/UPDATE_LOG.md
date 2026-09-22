@@ -4,6 +4,93 @@
 
 ---
 
+## v1.1.0 · 后台合并为单应用 `/admin`，修复后台整页错位
+
+交付日期：2026-05-20
+
+### 一、用户反馈的两个问题
+
+1. **后台 UI 错位**：顶栏内容竖排、账号信息挤进页签栏、趋势图被压成横条、登录表单撑满整屏。
+2. **希望前后台同页**：要能直接访问 `http://localhost:5173/admin` 作为管理后台入口。
+
+### 二、后台错位的根因（不是样式微调，是构建配置缺陷）
+
+`web-admin/src/styles/main.css` **漏了 `@import 'tailwindcss'`**，且 Vite 未挂 `@tailwindcss/vite` 插件。后果：源码里所有 Tailwind 工具类（`flex` / `grid-cols-4` / `max-w-*` / `gap-*`）全部没有生成——产物 CSS 仅 0.44 kB。页面因此表现为「有内容但不对齐」。
+
+修复过程中进一步发现：只写 `@import 'tailwindcss/utilities.css'` 也不够。v4 的 utilities 依赖默认主题变量（`--spacing` 等），跳过完整导入会导致 `gap-*`、`h-[Npx]`、`grid-cols-*` 这类**依赖主题刻度的工具类静默不生成**（实测 `flex` 生效、`gap-3` 完全缺失）。最终方案：导入完整 `tailwindcss`。
+
+### 三、单应用双区域改造
+
+| 项目 | 改造前 | 改造后 |
+| --- | --- | --- |
+| 访客端 | `web-portal`，端口 5173 | 同一应用，路径 `/` |
+| 管理后台 | `web-admin` 独立应用，端口 5174 | 同一应用，路径 `/admin`（`web-admin` 已删除） |
+| 构建产物 | 两份（两个 dist、两套 Nginx location） | 一份 `web-portal/dist` |
+| 后台依赖 | 首屏必需 | 按需懒加载，访客端首屏不下载 |
+
+具体做法：
+
+- 后台源码迁入 `web-portal/src/admin/`（views / layout / stores / api / router / permission / utils / config），共用组件（`SvgIcon`、`ImageUploader`、`VideoUploader`、`RichTextEditor`）提升到 `web-portal/src/components/`。
+- 后台路由统一加 `/admin` 前缀并使用绝对路径，路由 name 加 `admin-` 前缀；未匹配地址按前缀分别落到后台 404 与访客端 404。
+- 后台守卫拆到 `src/admin/router/guard.ts`，只接管 `/admin/**`；401 处理只在后台区域内跳转，避免访客端公开接口返回 401 时被误跳。
+- **按需加载**：`main.ts` 不再静态导入任何后台模块，改为 `import('@/admin/bootstrap')`，配合 history 拦截覆盖运行时导航。实测入口 chunk 95→170 kB，但 `index.html` **不再预加载** 890 kB 的 Naive-UI 与 812 kB 的编辑器包。
+
+### 四、这一轮修掉的真实缺陷
+
+| # | 缺陷 | 影响 | 处理 |
+| --- | --- | --- | --- |
+| 1 | 后台缺 `@import 'tailwindcss'`，Vite 未挂 Tailwind 插件 | 整页错位（顶栏竖排、表单撑满、图表压扁） | 补齐导入与插件，并注明「不能用 utilities 子集导入」的原因 |
+| 2 | 迁移脚本把第三方包名当成本地别名改写（`@wangeditor/` → `@/admin/utils/wangeditor/`） | 构建报模块找不到 | 修正引用；迁移脚本的替换项加上 `from ` 前缀，避免子串误伤 |
+| 3 | `@/admin/config` 自我循环导出（`export { API_BASE } from '@/admin/config'`） | TS2303 循环定义 | 改为从 `@/config` 导入后再导出 |
+| 4 | 趋势图柱高算法不健壮（宽 0、高度被拉伸成横条） | 图表不可读 | 改为内联样式的 grid 布局 + 显式高度，并加 `data-testid` 供断言 |
+| 5 | 登录表单在部分断点撑满整屏（依赖 `max-w-*` 工具类） | 登录页排版塌陷 | 改用固定 CSS 类 `.login-form-wrap`，不再依赖断点工具类 |
+| 6 | **深链 / 硬刷新 `/admin/**` 时后台守卫从未执行** | 守卫没跑 → 不请求 `/api/auth/profile` → 顶栏显示「未登录」、菜单只剩 2 项 | `createWebHistory()` 在模块导入阶段就完成首次导航，早于守卫注册。改为 `await router.isReady()` 后显式补一次后台初始化与用户信息拉取，再 `mount` |
+| 7 | 导航守卫里 `return to.fullPath` 触发无限重定向 | 页面白屏、路由中止 | 放弃用守卫做懒挂载，改为 history 层拦截 |
+| 8 | 手工 `manualChunks` 把 Naive-UI 提升进首屏预加载 | 访客端白下 890 kB | 去掉手工分包，依赖动态 import 自然分包 |
+| 9 | build 静默产出空 dist | `node dist/main.js` 报模块找不到 | 关闭 `incremental`（详见 v1.0.0 缺陷表 #2），本轮补充验证连续多次构建 |
+| 10 | favicon 404 噪音 | 控制台报错、验证脚本误判 | 两个入口都加内联 SVG favicon |
+| 11 | `.gitignore` 的 `!storage/uploads/.gitkeep` 无效（父目录被整体忽略） | 目录结构可能丢失 | 改为忽略 `uploads/` 并保留显式跟踪的 `.gitkeep` |
+
+### 五、新增的验证能力（可复用）
+
+| 文件 | 作用 |
+| --- | --- |
+| `scripts/verify-admin-ui.mjs` | 无头 Chrome（puppeteer-core，自动探测本机 Chrome/Edge）真实渲染后台：真实表单登录 → 断言布局不错位、主题生效、图表正常、接口数据落地、硬刷新后登录态恢复 → 收集控制台报错与失败请求 → 输出各页截图 |
+| `scripts/migrate-admin-to-portal.mjs` | 一次性迁移脚本（已执行，保留作追溯） |
+| `backend-nest/scripts/flush-cache.ts` | 清空本站 Redis 缓存键，改站点配置后让前台立即生效 |
+
+`pnpm verify:admin-ui` 与 `pnpm smoke` 已加入根 `package.json` 脚本。
+
+### 六、验证结果
+
+```text
+后端接口冒烟        scripts/smoke.ps1      → 全部通过 28/28
+后台 UI 渲染验证    verify-admin-ui.mjs    → 全部通过 29/29
+全量构建            pnpm build             → 3 个包全部 Done，0 错误
+```
+
+`verify-admin-ui` 关键断言（对应上表缺陷）：
+
+| 断言 | 实测 |
+| --- | --- |
+| 登录表单宽度受控 | form=380px / viewport=1600px |
+| 顶栏不与侧边栏重叠 | header.left=220 = sider.right=220 |
+| 卡片背景色生效（主题已注入） | rgb(255, 255, 255) |
+| 页签栏横向单行 | height=38，text="工作台" |
+| 趋势图 7 列、高度固定、柱子可见 | 190px 高、14 根柱子、柱宽 96–97px、横向跨度 639px |
+| 页面无横向溢出 | scrollWidth=1600 = viewport |
+| **硬刷新后恢复用户信息** | 顶栏="…超级管理员…"（修复前是「未登录」） |
+| **硬刷新后菜单按权限完整** | 工作台 / 内容运营 / 系统管理 / 修改密码 |
+| 各功能页无控制台报错 | 6 个页面逐一通过 |
+
+### 七、未覆盖项（延续 v1.0.0 的诚实声明）
+
+- MinIO 驱动、Docker 构建、`change-password` 端到端仍未实测（原因同 v1.0.0）。
+- 富文本编辑器与多图拖拽排序在真实浏览器中的**人工交互**未逐项操作，仅通过渲染层验证（编辑器容器与页面无报错）。
+- 本轮验证在 1600×1000 视口下进行；移动端/窄屏布局未做逐断点人工复核。
+
+---
+
 ## v1.0.0 · 首期交付：前台门户 + RBAC 后台 + NestJS 服务端
 
 交付日期：2026-05-20

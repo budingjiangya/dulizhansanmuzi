@@ -80,10 +80,18 @@ MINIO_BUCKET=sanmuzi
 
 ## 三、前端部署
 
+前端是**单应用双区域**，一次构建产出全部页面：
+
 ```bash
-pnpm portal:build   # 产物 web-portal/dist
-pnpm admin:build    # 产物 web-admin/dist
+pnpm portal:build   # 产物 web-portal/dist（含访客端 / 与后台 /admin）
 ```
+
+| 页面区域 | 访问路径 |
+| --- | --- |
+| 访客端首页 / 文章详情 | `/`、`/article/:id` |
+| 管理后台 | `/admin`（登录页 `/admin/login`） |
+
+后台依赖（Naive-UI、WangEditor）已做按需懒加载，访客端首屏只加载约 170 kB 的入口 chunk。
 
 生产构建前按环境设置 `VITE_API_BASE` / `VITE_ASSET_BASE`（留空表示同源，由 Nginx 反向代理）。
 
@@ -94,12 +102,12 @@ server {
   listen 80;
   server_name www.example.com;
 
-  # 前台门户
   root /var/www/web-portal;
   index index.html;
 
+  # 访客端与后台共用一套静态产物与 history 回退
   location / {
-    try_files $uri $uri/ /index.html;   # history 模式路由回退
+    try_files $uri $uri/ /index.html;
   }
 
   location /api/ {
@@ -114,40 +122,27 @@ server {
     proxy_pass http://127.0.0.1:3000;
   }
 }
-
-server {
-  listen 80;
-  server_name admin.example.com;
-
-  root /var/www/web-admin;
-  index index.html;
-
-  location / {
-    try_files $uri $uri/ /index.html;
-  }
-
-  location /api/ {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    client_max_body_size 600m;
-  }
-
-  location /static/ {
-    proxy_pass http://127.0.0.1:3000;
-  }
-}
 ```
 
 要点：
 
-1. `X-Forwarded-For` 必须透传，否则登录日志记录的是 Nginx 的 IP。
-2. `client_max_body_size` 要大于分片大小（默认 8MB）与视频直传上限，否则大文件请求会被 Nginx 提前拒绝。
-3. 两个前端都是 history 路由，必须配置 `try_files ... /index.html` 回退。
-4. 面板配置：后台站点建议加 `robots.txt` 拒绝收录（构建模板已带 `noindex` meta）。
+1. `/admin` 与访客端同源同产物，**不需要单独部署第二个站点**；`try_files` 回退同时覆盖 `/admin/**` 深链与刷新。
+2. `X-Forwarded-For` 必须透传，否则登录日志记录的是 Nginx 的 IP。
+3. `client_max_body_size` 要大于分片大小（默认 8MB）与视频直传上限，否则大文件请求会被 Nginx 提前拒绝。
+4. 如果确实要把后台暴露到独立域名（例如 `admin.example.com`），让该域名同样指向 `web-portal/dist` 即可，无需另建构建；也可在 Nginx 上只放行该域名的 `/admin` 与 `/api` 前缀以收敛暴露面。
+5. 建议为后台路径加 `robots.txt` 拒绝收录。
 
-## 四、上线前检查清单
+## 四、验证脚本（部署后自检）
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm smoke` | 后端接口端到端冒烟，28 项断言（公开接口、鉴权、RBAC 越权、抽帧、分片上传） |
+| `pnpm verify:admin-ui` | 无头 Chrome 真实渲染后台，29 项断言（布局不错位、主题生效、接口数据、硬刷新后登录态恢复）+ 截图 |
+| `pnpm verify:admin-ui -- --url=http://localhost:5173 --adminPath=/admin` | 指定地址验证 |
+
+`pnpm verify:admin-ui` 依赖本机已安装的 Chrome/Edge（脚本自动探测），并在 `scripts/artifacts/` 输出各页面截图，便于人工复核。
+
+## 五、上线前检查清单
 
 - [ ] 轮换 `backend-nest/.env` 中的数据库与 Redis 口令，并改为部署平台注入，不要提交仓库。
 - [ ] 替换 `JWT_SECRET` 为随机长字符串。
