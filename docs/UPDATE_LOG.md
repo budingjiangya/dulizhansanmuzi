@@ -4,6 +4,67 @@
 
 ---
 
+## v1.1.1 · 修复富文本编辑器打开编辑页即报错
+
+交付日期：2026-05-20
+
+### 一、现象（用户反馈的真实控制台错误）
+
+打开「文章管理 → 编辑」时控制台报：
+
+```text
+[Vue warn]: Unhandled error during execution of watcher callback  at <RichTextEditor …>
+[Vue warn]: Unhandled error during execution of component update    at <ArticleEditView …>
+
+TypeError: Cannot read properties of null (reading 'length')
+    at previous → withoutNormalizing → insertFragment → editor.setHtml
+    at <anonymous> (src/components/RichTextEditor.vue:68)
+Error: Cannot resolve a DOM node from Slate node: {"text":""}
+    at toDOMNode → toDOMPoint → toDOMRange
+```
+
+### 二、根因（三个叠加的 wangEditor 集成坑）
+
+1. **不能用 `v-model` 绑定 Editor**。wangEditor 5 的 `Editor` 是非受控组件：`v-model` 会在内容变化后把同一个响应式变量再写回编辑器，触发内部 slate 选区归一化，抛出上述两个异常。
+2. **`onCreated` 回调里立刻 `setHtml()` 不可靠**。此时 wangEditor 内部 state（含工具栏）尚未装配完成，setHtml 必然抛 `Cannot read properties of null (reading 'length')`。
+3. **只给 Editor 换 `key` 重建而不重建 Toolbar**，会报 `Repeated create toolbar by selector '[object HTMLDivElement]'`。
+
+### 三、修复方案
+
+改为 wangEditor 官方支持的 **`default-html` + `key` 重建**，不再手动调用 `setHtml`：
+
+- 编辑器首次挂载用 `default-html` 做初始渲染；
+- 父级内容发生**外部替换**（打开编辑页异步回填）时递增 key，让 Editor 与 Toolbar 一起以新内容重建；
+- 编辑器自身输入通过 `on-change` 回抛父级，此时父级值 === 编辑器值，不会触发重建（无回环）。
+
+同时补充：未就绪期间不写入、空内容统一用 `<p><br></p>` 占位、组件卸载 `destroy()` 防止全局事件泄漏。
+
+### 四、验证结果
+
+新增 `scripts/verify-article-edit-roundtrip.mjs`（无头 Chrome 全链路往返）：
+
+```text
+[1] 编辑页正文已加载       正文 456 字符
+[1] 正文标题层级保留       h2 数量=1
+[1] 正文图片保留           img 数量=1
+[1] 编辑器未报错（无 slate 异常）
+[2] 修改标题并保存 → 保存后回到文章列表 → 标题已落库
+[2] 正文未丢失（保存后仍有 h2 与图片）
+[3] 标题还原为原始值
+[3] 全流程无控制台错误
+
+全部通过：10/10
+```
+
+回归：`verify-admin-ui.mjs` 29/29 通过、`web-portal` 构建 0 错误、控制台 0 报错。
+
+### 五、遗留说明
+
+- 编辑器往返会在正文中引入零宽空格字符（U+200B，wangEditor 处理 `<p><br></p>` 时产生）。它不影响渲染与阅读，但会让 `content` 字符数略增（实测 643 → 658）。若要求正文严格不含零宽字符，可在保存前做一次清洗，当前未处理。
+- 视频型卡片的静态封面帧使用「随机时间点抽帧」，可能命中视频黑场（实测《久坐党的人体工学椅选购指南》封面偏黑）。这是内容质量问题不是缺陷，**未修改**；如需改善，方案是候选多帧按亮度/色彩择优。
+
+---
+
 ## v1.1.0 · 后台合并为单应用 `/admin`，修复后台整页错位
 
 交付日期：2026-05-20

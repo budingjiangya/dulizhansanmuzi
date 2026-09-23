@@ -105,6 +105,7 @@ onBeforeUnmount(stopRotate)
 
 <template>
   <article
+    data-testid="blog-card"
     class="group/card"
     @mouseenter="handleEnter"
     @mouseleave="handleLeave"
