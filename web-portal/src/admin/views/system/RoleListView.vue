@@ -5,9 +5,10 @@ import {
   NAlert,
   NButton,
   NCard,
+  NDataTable,
+
   NCheckbox,
   NCheckboxGroup,
-  NDataTable,
   NForm,
   NFormItem,
   NInput,

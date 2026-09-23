@@ -4,6 +4,80 @@
 
 ---
 
+## v1.1.2 · 修复全局 Naive-UI Provider 丢失（`injection "n-config-provider" not found`）
+
+交付日期：2026-05-20
+
+### 一、现象（用户反馈）
+
+后台「文章管理」页面控制台报：
+
+```text
+[Vue warn]: injection "n-config-provider" not found.
+  at <DataTableBody … showHeader=false …>
+  at <DataTable …>
+  at <ArticleListView …>
+```
+
+### 二、根因
+
+v1.1.0 把后台合并进 `web-portal` 时，`App.vue` 被覆盖成了**纯访客端版本**，
+后台原有的整套全局 Provider 全部丢失：
+
+```text
+NConfigProvider → NGlobalStyle → NLoadingBarProvider → NDialogProvider
+                → NNotificationProvider → NMessageProvider
+```
+
+后果不止是那条警告：
+
+| 影响 | 表现 |
+| --- | --- |
+| `n-config-provider` 注入缺失 | DataTable 的滚动/空态表体分支拿不到配置，控制台报注入警告 |
+| 主题覆写失效 | `themeOverrides` 未生成 CSS 变量，`DataTable.thFontWeight: '600'` 实际是 `500`、主色仍是 Naive 默认绿而非配置的蓝 |
+| 语言环境失效 | `locale: zhCN` 未生效（下拉框显示 "Please Select" 而非中文） |
+| 全局反馈组件缺失 | `NDialogProvider` / `NMessageProvider` / `NNotificationProvider` 不在树内，后台的弹窗与消息提示失去主题与语言上下文 |
+
+### 三、定位过程（可复用的排查手法）
+
+1. 先按用户堆栈尝试复现：菜单切换 ×80 次、硬刷新、多种视口、空表格筛选 —— 均无法复现警告，说明不是时序问题。
+2. 转查依赖树：`createInjectionKey('n-config-provider')` 实际只返回字符串，因此只可能是「provide 端缺失」。
+3. 断言主题是否生效：读取 `.n-data-table-th` 的 `computedStyle.fontWeight`，期望 `600` 实际拿到 `500` ——
+   **这条断言把问题从「偶发警告」变成「稳定可测的配置失效」**，比追警告本身更有效。
+4. 检查 `App.vue` 发现 Provider 全丢，补回后 `fontWeight=600`、`primaryColor=rgb(37,99,235)`、表格重新落在 provider 树内（depth=14）。
+
+### 四、修复内容
+
+- `web-portal/src/App.vue` 恢复完整 Provider 链，并保留访客端 / 后台的区域渲染分支。
+- `NConfigProvider` 显式加 `class="n-config-provider"`：该组件需要这个类名才会挂载主题样式节点，否则 `themeOverrides` 不生成 CSS 变量。
+- 主题偏好（明暗）统一由 `admin/stores/app` 提供，访客端与后台共用，避免两套主题源。
+
+### 五、验证结果
+
+| 断言 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 表头字重（期望主题覆写 600） | 500 | **600** |
+| 主色标签颜色（期望 #2563eb） | rgb(24,160,88) 默认绿 | **rgb(37,99,235)** |
+| 表格是否在 provider 树内 | 否（depth=-1） | **是（depth=14）** |
+
+回归（全部实测通过）：
+
+```text
+scripts/smoke.ps1                    后端接口冒烟            28/28
+scripts/verify-admin-ui.mjs          后台渲染验证            29/29
+scripts/verify-article-edit-roundtrip.mjs  文章编辑往返      10/10
+访客端首页                           6 张卡片 / 6 张图加载 / 0 报错
+pnpm --filter @sanmuzi/web-portal build                        0 错误
+```
+
+### 六、过程说明（诚实记录）
+
+本轮排查中我曾尝试给每个表格包一层 `NConfigProvider` 的 `AdminDataTable` 封装来「保证注入」。
+该方案**方向错误且引入了新回归**（表格不再渲染、筛选栏竖排），已完整回滚。
+真正原因是根部 Provider 缺失，在根部修一处即可，不需要在四个页面各包一层。
+
+---
+
 ## v1.1.1 · 修复富文本编辑器打开编辑页即报错
 
 交付日期：2026-05-20
