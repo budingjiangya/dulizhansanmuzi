@@ -74,14 +74,18 @@ pnpm portal:dev
 | `pnpm backend:prisma:migrate` | 生成并应用数据库迁移 |
 | `pnpm backend:seed` | 重置并灌入演示数据（幂等，会清空业务表） |
 | `pnpm backend:cache:flush` | 清空本站 Redis 缓存键（改配置后让前台立即生效） |
-| `pnpm smoke` | 后端接口端到端冒烟（28 项断言） |
+| `pnpm smoke` | 后端接口端到端冒烟（34 项断言） |
 | `pnpm verify:portal-ui` | 访客端真实渲染验证（无头 Chrome 真实鼠标事件，19 项断言 + 截图） |
+| `pnpm verify:search-ui` | 前台导航与站内搜索验证（五个入口、搜索流程、关于页与占位页，24 项断言 + 截图） |
 | `pnpm verify:admin-ui` | 后台真实渲染验证（无头 Chrome，30 项断言 + 截图） |
 | `pnpm verify:article-edit` | 文章编辑页全链路往返（打开 → 改标题 → 保存 → 回读校验，10 项断言） |
-| `pnpm verify:all` | 依次执行上述四个验证套件（共 87 项断言） |
+| `pnpm verify:all` | 依次执行上述五个验证套件（共 117 项断言） |
 
-> 三个 UI 验证脚本需要本机已安装 Chrome/Edge（脚本自动探测），截图输出到 `scripts/artifacts/`。
+> 四个 UI 验证脚本需要本机已安装 Chrome/Edge（脚本自动探测），截图输出到 `scripts/artifacts/`。
 > 运行前请先启动后端与前端：`pnpm dev`
+>
+> 注意：`scripts/smoke.ps1` 必须是 **UTF-8 带 BOM**。Windows PowerShell 5.1 会把无 BOM 的
+> UTF-8 按系统 ANSI 代码页读取，导致中文与引号解析失败。用编辑器改完该脚本后请确认 BOM 仍在。
 
 ## 五、核心实现要点
 

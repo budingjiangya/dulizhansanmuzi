@@ -89,8 +89,35 @@ try {
   console.log('[1] 首页推荐列表')
   await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle2', timeout: 60000 })
   await page.waitForSelector('[data-testid="blog-card"]', { timeout: 30000 })
-  // 等封面图（含远程占位图）加载完
-  await sleep(3000)
+  /*
+   * 触发惰性加载后再断言封面图。
+   *
+   * 卡片图片使用 loading="lazy"：首屏之外的图片在滚动到附近之前浏览器不会发起请求。
+   * 只等固定时长就断言「全部加载成功」会误判 —— 实测 7 张卡片时最后一张就在首屏外，
+   * 曾因此报出假的「封面图加载失败」。这里按真实用户行为逐屏滚动到底，
+   * 再轮询等待所有 img 进入 complete 状态。
+   */
+  await sleep(1500)
+  await page.evaluate(async () => {
+    const step = Math.round(window.innerHeight * 0.8)
+    for (let y = 0; y < document.body.scrollHeight; y += step) {
+      window.scrollTo(0, y)
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    window.scrollTo(0, document.body.scrollHeight)
+  })
+  // 轮询等待所有卡片图片加载完成（最多 15 秒）
+  await page
+    .waitForFunction(
+      () => {
+        const imgs = Array.from(document.querySelectorAll('[data-testid="blog-card"] img'))
+        return imgs.length > 0 && imgs.every((img) => img.complete)
+      },
+      { timeout: 15000, polling: 300 },
+    )
+    .catch(() => {})
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await sleep(600)
   await page.screenshot({ path: resolve(OUT_DIR, 'portal-01-home.png'), fullPage: true })
 
   const apiExpected = await page.evaluate(async () => {

@@ -146,9 +146,35 @@ Token 载荷只包含 `userId` 与 `roleId`，**不含权限数组**；后端 `P
 - `image`：`coverImages` 为多张封面图数组，前台 hover 自动轮切；
 - `video`：`coverVideoFrame` 为静态封面帧（前台默认展示），`coverVideo` 为 hover 时才加载的短视频。
 
+### GET /api/portal/articles/search
+
+站内搜索。按关键词匹配**标题、摘要与富文本正文**（三者 OR 关系），覆盖**全部已上架文章**（不限于首页推荐位）。
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `keyword` | 是 | 1–50 字（前后空格会被 trim）；为空、全空格或超长均返回 `40000` |
+| `page` / `pageSize` | 否 | 与其他列表接口一致，`pageSize` 上限 100 |
+
+- 排序：`sort DESC, updatedAt DESC`，与首页卡片的编辑权重观一致。
+- 响应：`PageResult<ArticleListItemVo>`，**不含 `content`**（列表轻量化）。
+- 无命中时返回 `code: 0` 且 `total: 0`，**不是错误**。
+- **不做 Redis 缓存**：每个不同关键词都会产生一个缓存键，命中率极低且会污染缓存空间。这也是它不能复用首页列表缓存路径的原因之一。
+
+```bash
+curl -s "http://localhost:3000/api/portal/articles/search?keyword=%E6%98%BE%E7%A4%BA%E5%99%A8&page=1&pageSize=9"
+```
+
 ### GET /api/portal/articles/:id
 
-文章详情，额外返回 `content`（富文本 HTML）。未上架或已删除的文章统一返回 `40400`。
+文章详情，额外返回 `content`（富文本 HTML）。未上架或已删除的文章返回 `40400`。
+
+> **可见性规则变更（v1.2.0）**
+>
+> 该接口此前要求 `isPublish && isRecommend`，现已对齐为**只校验 `isPublish`**。
+>
+> 理由：`isPublish` 决定「能否被访问」，`isRecommend` 只决定「是否出现在首页推荐位」。推荐位是展示位置，不应兼任访问权限。若不改，站内搜索会返回「已上架但未推荐」的文章，而用户点进去得到 404。
+>
+> 影响：已上架但未推荐的文章，从此可通过直接 URL 访问（此前会 404）。首页推荐列表 `GET /api/portal/articles` 的规则（`isRecommend && isPublish`）**保持不变**。
 
 ---
 
