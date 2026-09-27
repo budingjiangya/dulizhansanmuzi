@@ -75,7 +75,13 @@ pnpm portal:dev
 | `pnpm backend:seed` | 重置并灌入演示数据（幂等，会清空业务表） |
 | `pnpm backend:cache:flush` | 清空本站 Redis 缓存键（改配置后让前台立即生效） |
 | `pnpm smoke` | 后端接口端到端冒烟（28 项断言） |
-| `pnpm verify:admin-ui` | 后台真实渲染验证（无头 Chrome，29 项断言 + 截图） |
+| `pnpm verify:portal-ui` | 访客端真实渲染验证（无头 Chrome 真实鼠标事件，19 项断言 + 截图） |
+| `pnpm verify:admin-ui` | 后台真实渲染验证（无头 Chrome，30 项断言 + 截图） |
+| `pnpm verify:article-edit` | 文章编辑页全链路往返（打开 → 改标题 → 保存 → 回读校验，10 项断言） |
+| `pnpm verify:all` | 依次执行上述四个验证套件（共 87 项断言） |
+
+> 三个 UI 验证脚本需要本机已安装 Chrome/Edge（脚本自动探测），截图输出到 `scripts/artifacts/`。
+> 运行前请先启动后端与前端：`pnpm dev`
 
 ## 五、核心实现要点
 

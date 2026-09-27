@@ -87,7 +87,10 @@ watch(articleId, () => void load(), { immediate: true })
     <article v-else-if="article" class="mx-auto max-w-[46rem] pb-16">
       <header class="pt-8 md:pt-10">
         <time class="text-[13px] text-ink-muted">{{ formatDate(article.updatedAt || article.createdAt) }}</time>
-        <h1 class="mt-4 font-serif text-[1.875rem] leading-tight font-semibold text-ink md:text-[2.5rem]">
+        <h1
+          data-testid="article-title"
+          class="mt-4 font-serif text-[1.875rem] leading-tight font-semibold text-ink md:text-[2.5rem]"
+        >
           {{ article.title }}
         </h1>
         <p class="mt-5 font-serif text-[1.0625rem] leading-relaxed text-ink-soft md:text-[1.125rem]">

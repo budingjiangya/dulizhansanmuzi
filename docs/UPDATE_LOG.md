@@ -4,6 +4,105 @@
 
 ---
 
+## v1.1.3 · 新增访客端渲染验证，修复「视频悬浮预览从不播放」
+
+交付日期：2026-09-27
+
+### 一、背景
+
+本轮原本只是启动前后端服务，但补做**访客端渲染验证**时抓到一个此前从未被验证过的核心功能缺陷：
+需求文档明确要求「视频封面 hover 静音预览」，而实际代码从未真正播放过视频。
+
+### 二、修复的真实缺陷：视频悬浮预览从不播放
+
+**现象**：hover 视频卡片时 `<video>` 元素正确挂载、`muted=true`，但 `paused=true`、`currentTime=0.00` —— 画面停在第一帧不动。
+
+**根因**（`web-portal/src/components/BlogCard.vue`）：
+
+```js
+watch(videoSrc, async (src) => {
+  const el = videoEl.value
+  if (!el) return        // ← 永远从这里返回
+  await el.play()
+})
+```
+
+`watch` 默认是 **pre-flush**：回调在组件重新渲染**之前**执行。而 `<video>` 是 `v-if="videoSrc && ..."`
+条件渲染的，第一次 hover 时那一刻 DOM 还没有 video 元素，`videoEl.value` 仍是 `null`，
+于是 `if (!el) return` 直接跳出，`play()` 一次都没被调用。
+
+**修复**：改用 `{ flush: 'post' }` 并 `await nextTick()`，等 DOM 更新完成、模板引用指向真实元素后再调用 `play()`。
+
+**实测对比**：
+
+| 断言 | 修复前 | 修复后 |
+| --- | --- | --- |
+| hover 后挂载 video 元素 | 挂载成功 | 挂载成功 |
+| video 为静音 | `muted=true` | `muted=true` |
+| **视频正在播放** | **`paused=true`，`currentTime=0.00`** | **`paused=false`，`currentTime=2.86`** |
+| 移开后卸载 video | 通过 | 通过 |
+
+### 三、新增访客端渲染验证 `scripts/verify-portal-ui.mjs`
+
+与后台验证同规格（无头 Chrome + 真实鼠标事件），19 项断言：
+
+| 分组 | 断言要点 |
+| --- | --- |
+| 首页列表 | 卡片数与接口一致、每张卡片有封面、**封面图全部真实加载**（`naturalWidth>0`，排除 404/白图）、**首页不预加载任何 `<video>`**（性能约束） |
+| 多图轮播 | hover 时封面切换、移开后回到第一张（真实鼠标事件，非 JS 触发） |
+| 视频预览 | hover 挂载 video、静音、**确实在播放**、移开后卸载并保留静态帧 |
+| 详情页 | 卡片点击跳转、**标题与接口数据一致**、富文本正文渲染、无新增报错 |
+| 404 | 访客端 404 页面渲染 |
+| 控制台/网络 | 无控制台错误、无真实失败请求 |
+
+根脚本新增 `pnpm verify:portal-ui`、`pnpm verify:article-edit`、`pnpm verify:all`（一键跑全部四套）。
+
+### 四、验证脚本自身修掉的两处「假验证」
+
+诚实记录：这两个问题出在验证脚本，不是产品代码，但都会掩盖真实缺陷。
+
+1. **hover 坐标不可靠**：脚本原先用 `scrollIntoView()` + 立即读 `getBoundingClientRect()` 手算鼠标坐标。
+   本站启用了 CSS `scroll-behavior: smooth`，滚动是异步的，读到的 rect 是滚动前的旧值，
+   鼠标可能落在卡片之外 → 视频断言出现**假失败**。改用 Puppeteer 的 `ElementHandle.hover()`
+   （内部先滚动到可视区域再移动到元素中心）。
+2. **详情页标题取错元素（假通过）**：脚本原先取页面第一个 `<h1>`，而页头的站点名也是 `<h1>`，
+   于是「标题非空」永远通过、实际根本没验证文章标题。已给文章标题加 `data-testid="article-title"`，
+   断言改为「页面标题 === 接口返回标题」。
+
+同时把 `net::ERR_ABORTED` 从「失败请求」中单独归类并打印明细：
+它表示**浏览器主动取消**（多图轮播每 900ms 换 `src`、鼠标移开卸载 video 释放解码资源），
+按定义不可能代表资源损坏（404/500/DNS 是别的错误码），因此不计为失败但如实展示。
+
+### 五、趋势图柱高：0 值渲染语义
+
+后台工作台「近 7 天登录趋势」在运行几天后会自然出现 0 登录的日期（种子数据的日志时间相对灌库时刻生成）。
+此时柱高为 0 是**正确表现**，不是缺陷。据此做了两处调整：
+
+- **产品侧**：新增 `barHeight(count)`，次数为 0 → 0 高度；次数非 0 → 按比例但**至少 2px**，
+  避免某天次数远小于峰值时被四舍五入成 0，视觉上与「当天没有登录」无法区分。
+- **验证侧**：断言改为**数据驱动** —— 解析柱子 `title` 里的次数，校验「0 次必须 0 高度、非 0 必须可见」，
+  不再假设每天都有登录。
+
+### 六、验证结果（本次实测）
+
+```text
+访客端渲染验证   scripts/verify-portal-ui.mjs              19/19
+后台渲染验证     scripts/verify-admin-ui.mjs               30/30
+文章编辑往返     scripts/verify-article-edit-roundtrip.mjs 10/10
+后端接口冒烟     scripts/smoke.ps1                         28/28
+                                                 合计      87 项全通过
+
+web-portal 构建（vue-tsc + vite build）                    0 错误
+```
+
+### 七、仍未处理（需要你决定的遗留项）
+
+访客端首页《久坐党的人体工学椅选购指南》的静态封面帧**接近全黑**（见 `scripts/artifacts/portal-01-home.png`）。
+原因是「随机时间点抽帧」命中了视频淡入黑场。这是内容质量问题不是代码缺陷，**本次未改动**。
+可选方案：抽帧时生成多张候选帧，按亮度/色彩丰富度择优（保留随机性），需要重跑一次 `pnpm backend:seed` 重新生成演示封面。
+
+---
+
 ## v1.1.2 · 修复全局 Naive-UI Provider 丢失（`injection "n-config-provider" not found`）
 
 交付日期：2026-05-20

@@ -20,6 +20,17 @@ const trendMax = computed(() => {
   return max
 })
 
+/**
+ * 单根柱子高度（px）
+ * - 次数为 0：渲染 0 高度，表示当天没有登录（不是缺陷，是正确表现）
+ * - 次数非 0：按比例缩放，但至少 2px —— 否则当某天次数远小于峰值时会被四舍五入成 0，
+ *   视觉上与「当天没有登录」无法区分，会误导阅读
+ */
+function barHeight(count: number): string {
+  if (count <= 0) return '0px'
+  return `${Math.max(2, Math.round((count / trendMax.value) * 130))}px`
+}
+
 const publishRate = computed(() => {
   const total = stats.value?.articleTotal ?? 0
   if (!total) return 0
@@ -116,7 +127,7 @@ onMounted(load)
                 <div
                   :style="{
                     width: '100%',
-                    height: `${Math.round((item.success / trendMax) * 130)}px`,
+                    height: barHeight(item.success),
                     backgroundColor: '#2563eb',
                     borderRadius: '2px',
                   }"
@@ -125,7 +136,7 @@ onMounted(load)
                 <div
                   :style="{
                     width: '100%',
-                    height: `${Math.round((item.fail / trendMax) * 130)}px`,
+                    height: barHeight(item.fail),
                     backgroundColor: 'rgba(239,68,68,0.7)',
                     borderRadius: '2px',
                   }"

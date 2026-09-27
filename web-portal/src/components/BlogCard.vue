@@ -5,7 +5,7 @@
  * - coverType = video：默认只渲染 FFmpeg 抽帧静态图；mouseenter 才请求并静音自动播放视频，mouseleave 立即暂停并卸载 video 源
  * 关键性能约束：首页不预加载任何视频资源，也不预加载未进入视口的封面图。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { ArticleListItemVo } from '@sanmuzi/contracts'
 import { CoverType } from '@sanmuzi/contracts'
 import { resolveAssetList, resolveAssetUrl } from '@/utils/asset'
@@ -78,18 +78,31 @@ const videoSrc = computed(() => (isHovering.value && isVideoMode.value ? videoUr
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 
-watch(videoSrc, async (src) => {
-  if (!src) return
-  const el = videoEl.value
-  if (!el) return
-  el.muted = true
-  try {
-    await el.play()
-  } catch {
-    // 浏览器可能拦截自动播放；此时保留静态帧，不打断页面
-    isVideoFailed.value = true
-  }
-})
+/**
+ * hover 时播放静音预览
+ *
+ * 必须用 `flush: 'post'`：默认的 pre-flush watcher 会在组件重新渲染「之前」触发，
+ * 那一刻 `<video v-if="videoSrc">` 还没被创建，videoEl.value 仍是 null，
+ * 于是 play() 永远不会被调用 —— 表现为「视频元素挂载了但一直停留在第一帧」（实测 paused=true）。
+ * post 表示等 DOM 更新完成后再执行，此时模板引用才指向真实的 video 元素。
+ */
+watch(
+  videoSrc,
+  async (src) => {
+    if (!src) return
+    await nextTick()
+    const el = videoEl.value
+    if (!el) return
+    el.muted = true
+    try {
+      await el.play()
+    } catch {
+      // 浏览器可能拦截自动播放；此时保留静态帧，不打断页面
+      isVideoFailed.value = true
+    }
+  },
+  { flush: 'post' },
+)
 
 function handleVideoReady(): void {
   isVideoReady.value = true
@@ -162,7 +175,9 @@ onBeforeUnmount(stopRotate)
       </div>
 
       <div class="mt-5">
-        <span class="text-[11px] uppercase tracking-[0.16em] text-ink-muted">{{ coverLabel }}</span>
+        <span data-testid="card-cover-label" class="text-[11px] uppercase tracking-[0.16em] text-ink-muted">{{
+          coverLabel
+        }}</span>
         <h2
           class="mt-2 font-serif text-xl leading-snug font-semibold text-ink transition-colors duration-200 group-hover/card:text-accent md:text-[1.375rem]"
         >

@@ -243,7 +243,20 @@ try {
     check('页签栏存在', false, '未找到 [data-testid=admin-tabs-bar]')
   }
 
-  const visibleBars = layout.bars.filter((bar) => bar.height > 2)
+  /*
+   * 趋势图断言采用「数据驱动」，不能假设「每天都有登录」：
+   * 种子数据里的登录日志是相对灌库时间生成的，过几天后部分日期自然为 0，
+   * 此时柱子高度为 0 是正确渲染而不是缺陷。
+   * 正确的判据是「柱子高度必须与其代表的数量一致」。
+   */
+  const parsedBars = layout.bars.map((bar) => {
+    const match = /(\d+)\s*次/.exec(bar.title ?? '')
+    return { ...bar, count: match ? Number(match[1]) : null }
+  })
+  const barsWithCount = parsedBars.filter((bar) => bar.count !== null)
+  const zeroBars = barsWithCount.filter((bar) => bar.count === 0)
+  const positiveBars = barsWithCount.filter((bar) => bar.count > 0)
+
   check(
     '趋势图渲染出 7 个日期列',
     layout.columnCount === 7,
@@ -255,9 +268,18 @@ try {
     `chart height=${Math.round(layout.chartHeight)}px`,
   )
   check(
-    '趋势图柱子可见且高度不为零',
-    layout.barCount >= 7 && visibleBars.length >= 7,
-    `柱子数=${layout.barCount}，可见=${visibleBars.length}`,
+    '每个日期列都有成功/失败两组柱子',
+    parsedBars.length === layout.columnCount * 2 && barsWithCount.length === parsedBars.length,
+    `柱子数=${parsedBars.length}，可解析数量=${barsWithCount.length}`,
+  )
+  check(
+    '柱子高度与登录次数一致（0 次必须为 0 高度，非 0 必须可见）',
+    zeroBars.every((bar) => bar.height < 2) && positiveBars.every((bar) => bar.height >= 2),
+    `零值 ${zeroBars.length} 根 / 非零 ${positiveBars.length} 根` +
+      (positiveBars.length
+        ? `，非零最小高度=${Math.round(Math.min(...positiveBars.map((b) => b.height)))}px`
+        : '') +
+      (zeroBars.length ? `，零值最大高度=${Math.round(Math.max(...zeroBars.map((b) => b.height)))}px` : ''),
   )
   check(
     '柱子宽度合理（不是被拉满的横条）',
