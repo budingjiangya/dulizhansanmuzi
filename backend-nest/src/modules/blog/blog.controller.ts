@@ -10,6 +10,7 @@ import {
   type ArticleListItemVo,
   type PageResult,
 } from '@sanmuzi/contracts'
+import { OperationLog } from '../../common/decorators/operation-log.decorator'
 import { RequirePermissions } from '../../common/decorators/permissions.decorator'
 import { BlogService } from './blog.service'
 import { CreateArticleDto } from './dto/create-article.dto'
@@ -48,6 +49,7 @@ export class BlogController {
 
   @Post()
   @RequirePermissions(PERMISSIONS.BLOG_ARTICLE_CREATE)
+  @OperationLog({ module: 'blog:article', action: 'create', targetType: 'article' })
   @ApiOperation({ summary: '新增文章', description: 'coverType=image 时必须提供封面图数组，coverType=video 时必须提供视频地址。' })
   @ApiBody({ type: CreateArticleDto })
   @ApiOkResponse({ description: '新建的 ArticleDetailVo' })
@@ -57,6 +59,7 @@ export class BlogController {
 
   @Put(':id')
   @RequirePermissions(PERMISSIONS.BLOG_ARTICLE_UPDATE)
+  @OperationLog({ module: 'blog:article', action: 'update', targetType: 'article' })
   @ApiOperation({ summary: '编辑文章', description: '字段全部可选；切换封面类型后服务端会重新校验封面完整性。' })
   @ApiBody({ type: UpdateArticleDto })
   @ApiOkResponse({ description: '更新后的 ArticleDetailVo' })
@@ -69,6 +72,7 @@ export class BlogController {
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.BLOG_ARTICLE_DELETE)
+  @OperationLog({ module: 'blog:article', action: 'delete', targetType: 'article' })
   @ApiOperation({ summary: '删除文章', description: '删除后自动清理前台列表缓存。' })
   @ApiOkResponse({ description: '删除成功，data 为 null' })
   async remove(
@@ -79,6 +83,7 @@ export class BlogController {
 
   @Patch(':id/publish')
   @RequirePermissions(PERMISSIONS.BLOG_ARTICLE_UPDATE)
+  @OperationLog({ module: 'blog:article', action: 'update', targetType: 'article' })
   @ApiOperation({ summary: '切换上下架状态', description: 'body { value: boolean }。' })
   @ApiBody({ type: ToggleArticleDto })
   @ApiOkResponse({ description: '更新后的 ArticleListItemVo' })
@@ -91,6 +96,7 @@ export class BlogController {
 
   @Patch(':id/recommend')
   @RequirePermissions(PERMISSIONS.BLOG_ARTICLE_UPDATE)
+  @OperationLog({ module: 'blog:article', action: 'update', targetType: 'article' })
   @ApiOperation({ summary: '切换首页推荐位', description: 'body { value: boolean }。' })
   @ApiBody({ type: ToggleArticleDto })
   @ApiOkResponse({ description: '更新后的 ArticleListItemVo' })
@@ -103,6 +109,7 @@ export class BlogController {
 
   @Patch(':id/sort')
   @RequirePermissions(PERMISSIONS.BLOG_ARTICLE_UPDATE)
+  @OperationLog({ module: 'blog:article', action: 'update', targetType: 'article' })
   @ApiOperation({ summary: '更新首页排序权重', description: 'body { sort: number }，数字越大越靠前。' })
   @ApiBody({ type: SortArticleDto })
   @ApiOkResponse({ description: '更新后的 ArticleListItemVo' })

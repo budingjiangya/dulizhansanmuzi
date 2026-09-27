@@ -175,7 +175,14 @@
 | GET | `/api/portal/categories` | 全部分类（不分页，含 `articleCount`），排序 `sort desc, id asc` |
 | GET | `/api/portal/categories/:id/articles` | 该分类下**已上架**文章的分页列表，`sort desc, id desc`，不含 `content`；分类不存在返回 `40400` |
 
-- 分类列表返回数组（与 `GET /api/admin/roles` 一致，不分页），并带 `articleCount`。
+- 分类列表返回数组（与 `GET /api/admin/roles` 一致，不分页），并带两个文章数口径：
+
+| 字段 | 口径 | 谁用 |
+| --- | --- | --- |
+| `articleCount` | 该分类下**全部**文章（含未上架草稿）；与「删除占用校验」同一口径 | 后台分类管理页 |
+| `publishedArticleCount` | 该分类下**已上架**文章 | 前台分类页 |
+
+> **为什么必须分两个口径**：前台分类文章列表只返回 `isPublish = true` 的文章。若前台拿 `articleCount` 展示数量，会出现「显示 5 篇、点进去只有 3 篇」的不一致。这是复核后端交付时发现的集成问题，已修正。
 - 分类删除：被文章占用时返回 `40900`，消息说明还有几篇文章在用。
 - 订阅列表：分页，支持按 `email` 模糊、`startTime` / `endTime` 筛选。
 - 操作日志：分页，支持按 `adminUsername`、`module`、`result`、`startTime` / `endTime` 筛选。

@@ -15,6 +15,7 @@ import {
   NInputNumber,
   NRadioButton,
   NRadioGroup,
+  NSelect,
   NSpace,
   NSpin,
   NSwitch,
@@ -25,6 +26,7 @@ import {
 import type { CoverTypeValue } from '@sanmuzi/contracts'
 import { COVER_TYPE_TEXT, CoverType } from '@sanmuzi/contracts'
 import { createArticle, fetchArticleDetail, updateArticle } from '@/admin/api/article'
+import { fetchCategories } from '@/admin/api/category'
 import { BizError } from '@/admin/api/request'
 import { message } from '@/admin/utils/discrete'
 import ImageUploader from '@/components/ImageUploader.vue'
@@ -57,6 +59,8 @@ interface ArticleFormModel {
   isRecommend: boolean
   isPublish: boolean
   sort: number
+  /** 所属分类 id，未分类为 null */
+  categoryId: number | null
 }
 
 const form = reactive<ArticleFormModel>({
@@ -70,10 +74,14 @@ const form = reactive<ArticleFormModel>({
   isRecommend: true,
   isPublish: true,
   sort: 0,
+  categoryId: null,
 })
 
 const videoDuration = ref<number | null>(null)
 const videoResolution = ref<string | null>(null)
+
+/** 分类下拉选项：来自后台分类接口（全量数组） */
+const categoryOptions = ref<Array<{ label: string; value: number }>>([])
 
 const rules: FormRules = {
   title: [
@@ -108,10 +116,23 @@ async function loadDetail(): Promise<void> {
     form.isRecommend = detail.isRecommend
     form.isPublish = detail.isPublish
     form.sort = detail.sort
+    // 详情返回分类 id，未分类为 null，正好与 NSelect 的 clearable 空值一致
+    form.categoryId = detail.categoryId
   } catch (error) {
     errorText.value = error instanceof BizError ? error.message : '文章详情加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+/** 加载分类下拉选项，失败时置空并提示，不阻塞文章编辑 */
+async function loadCategories(): Promise<void> {
+  try {
+    const list = await fetchCategories()
+    categoryOptions.value = list.map((item) => ({ label: item.name, value: item.id }))
+  } catch (error) {
+    categoryOptions.value = []
+    message.error(error instanceof BizError ? error.message : '分类列表加载失败')
   }
 }
 
@@ -159,7 +180,9 @@ function goBack(): void {
   void router.push({ name: 'admin-blog-article-list' })
 }
 
-onMounted(loadDetail)
+onMounted(async () => {
+  await Promise.all([loadDetail(), loadCategories()])
+})
 </script>
 
 <template>
@@ -253,6 +276,17 @@ onMounted(loadDetail)
                     <p class="text-[12px] opacity-60">关闭则保存为草稿，前台不可访问</p>
                   </div>
                   <NSwitch v-model:value="form.isPublish" />
+                </div>
+                <div>
+                  <p class="mb-1.5 text-[13px] font-medium">分类</p>
+                  <NSelect
+                    v-model:value="form.categoryId"
+                    :options="categoryOptions"
+                    placeholder="未分类"
+                    clearable
+                    class="w-full"
+                  />
+                  <p class="mt-1.5 text-[12px] opacity-60">前台分类页按此归类；留空表示未分类</p>
                 </div>
                 <div>
                   <p class="mb-1.5 text-[13px] font-medium">排序权重</p>

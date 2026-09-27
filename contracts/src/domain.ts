@@ -319,8 +319,18 @@ export interface CategoryVo {
   name: string
   /** 排序权重，越大越靠前 */
   sort: number
-  /** 该分类下的文章数量（用于前台展示与后台删除前提示） */
+  /**
+   * 该分类下的文章总数（含未上架草稿）。
+   * 口径与「删除分类时是否被占用」的校验一致 —— 只要有任何一篇文章引用该分类就不允许删除。
+   * 后台分类管理页展示这个值。
+   */
   articleCount: number
+  /**
+   * 该分类下**已上架**的文章数。
+   * 前台分类页必须用这个值：前台只展示已上架文章，
+   * 若用 articleCount 会出现「显示 5 篇、点进去只有 3 篇」的不一致。
+   */
+  publishedArticleCount: number
   createdAt: string
   updatedAt: string
 }

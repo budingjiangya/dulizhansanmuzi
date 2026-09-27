@@ -447,6 +447,333 @@ Test-Case '可见性对齐：已上架未推荐文章可搜索、可打开、但
   }
 }
 
+# ---------------------------------------------------------------- 4.6 邮件订阅与验证码
+Write-Host ''
+Write-Host '[4.6] 邮件订阅与图形验证码' -ForegroundColor Yellow
+
+$script:repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+<#
+  取验证码的正确答案。
+  答案只存在服务端 Redis 里、接口不会返回，因此必须用本地辅助脚本按 captchaId 读出来，
+  否则无法验证「正确验证码提交成功」这条主路径。辅助脚本不是产品接口。
+
+  两个必须注意的坑（都实际踩过）：
+  1. PowerShell 5.1 在 $ErrorActionPreference='Stop' 下，会把原生命令写到 stderr 的内容
+     当成终止错误抛出。node 启动时会往 stderr 打一行 UNDICI 实验特性警告，
+     于是「读答案」这一步直接抛异常、整组断言全废。这里临时把 ErrorActionPreference 降为 Continue。
+  2. 同时用 --no-warnings 关掉警告，避免污染返回值。
+#>
+function Invoke-NodeHelper {
+  param([string]$ScriptName, [string[]]$Arguments = @())
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $scriptPath = Join-Path $script:repoRoot "scripts\$ScriptName"
+    $output = & node --no-warnings $scriptPath @Arguments 2>$null
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+  return @{ output = $output; exitCode = $exitCode }
+}
+
+function Get-CaptchaAnswer {
+  param([string]$CaptchaId)
+  $result = Invoke-NodeHelper -ScriptName 'get-captcha-answer.mjs' -Arguments @($CaptchaId)
+  if ($result.exitCode -ne 0) { throw "读取验证码答案失败（captchaId=$CaptchaId，exit=$($result.exitCode)）" }
+  return ($result.output | Select-Object -First 1).Trim()
+}
+
+function Reset-SubscribeRate {
+  param([string]$Ip = '127.0.0.1')
+  [void](Invoke-NodeHelper -ScriptName 'reset-subscribe-rate.mjs' -Arguments @($Ip))
+}
+
+function New-CaptchaPair {
+  $captcha = Invoke-Api -Method GET -Path '/api/portal/captcha'
+  Assert-Equal $captcha.code 0 '获取验证码失败'
+  return @{ captchaId = $captcha.data.captchaId; answer = (Get-CaptchaAnswer $captcha.data.captchaId) }
+}
+
+$script:smokeEmail = "smoke-subscribe-$((Get-Random -Minimum 10000 -Maximum 99999))@example.com"
+
+Test-Case '获取图形验证码：返回 id 与可直接用于 img 的 data URI' {
+  $res = Invoke-Api -Method GET -Path '/api/portal/captcha'
+  Assert-Equal $res.code 0 '业务码应为 0'
+  Assert-True ([bool]$res.data.captchaId) '未返回 captchaId'
+  Assert-True ($res.data.imageBase64 -like 'data:image/svg+xml;base64,*') "imageBase64 前缀不正确，实际 = $($res.data.imageBase64.Substring(0, [Math]::Min(40, $res.data.imageBase64.Length)))"
+  Assert-True ($res.data.imageBase64.Length -gt 200) 'imageBase64 过短，可能不是完整 SVG'
+  "captchaId = $($res.data.captchaId.Substring(0, 8))...，data URI 长度 = $($res.data.imageBase64.Length)"
+}
+
+Test-Case '伪造 captchaId 提交被拒（40000）' {
+  $res = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = $script:smokeEmail; message = '顺手写点东西'; captchaId = 'not-a-real-captcha-id'; captchaCode = 'abcd'
+  }
+  Assert-Equal $res.__body.code 40000 '应返回 40000'
+  Assert-True ($res.__body.message -like '*验证码*') "错误消息应提到验证码，实际 = $($res.__body.message)"
+}
+
+Test-Case '邮箱格式非法被拒（40000）' {
+  $pair = New-CaptchaPair
+  $res = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = 'not-an-email'; captchaId = $pair.captchaId; captchaCode = $pair.answer
+  }
+  Assert-Equal $res.__body.code 40000 '非法邮箱应返回 40000'
+}
+
+Test-Case '正确验证码提交成功，且留言可留空' {
+  Reset-SubscribeRate
+  $pair = New-CaptchaPair
+  $res = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = $script:smokeEmail; captchaId = $pair.captchaId; captchaCode = $pair.answer
+  }
+  Assert-Equal $res.code 0 '订阅应成功'
+  Assert-Equal $res.data.duplicated $false '首次提交不应是重复'
+  # 留言留空也能提交
+  $pair2 = New-CaptchaPair
+  $res2 = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = "blank-$script:smokeEmail"; captchaId = $pair2.captchaId; captchaCode = $pair2.answer
+  }
+  Assert-Equal $res2.code 0 '不填留言也应能提交'
+  "订阅邮箱 = $script:smokeEmail（留言留空用例 = blank-$script:smokeEmail）"
+}
+
+Test-Case '重复邮箱幂等：返回 duplicated 且不新增记录' {
+  $token = $script:adminToken
+  $before = Invoke-Api -Method GET -Path "/api/admin/subscriptions?page=1&pageSize=1&email=$([uri]::EscapeDataString($script:smokeEmail))" -Token $token
+  Assert-Equal $before.code 0 '订阅列表查询失败'
+  $beforeTotal = $before.data.total
+
+  $pair = New-CaptchaPair
+  $res = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = $script:smokeEmail; captchaId = $pair.captchaId; captchaCode = $pair.answer
+  }
+  Assert-Equal $res.code 0 '重复提交不应报错'
+  Assert-Equal $res.data.duplicated $true '重复提交应返回 duplicated=true'
+
+  $after = Invoke-Api -Method GET -Path "/api/admin/subscriptions?page=1&pageSize=1&email=$([uri]::EscapeDataString($script:smokeEmail))" -Token $token
+  Assert-Equal $after.data.total $beforeTotal '重复提交不应新增记录'
+  "该邮箱记录数：$beforeTotal -> $($after.data.total)"
+}
+
+Test-Case '验证码一次性：同一 captchaId 第二次提交必然失败' {
+  $pair = New-CaptchaPair
+  $email = "once-$script:smokeEmail"
+  $first = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = $email; captchaId = $pair.captchaId; captchaCode = $pair.answer
+  }
+  Assert-Equal $first.code 0 '首次提交应成功'
+  $second = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+    email = "once2-$script:smokeEmail"; captchaId = $pair.captchaId; captchaCode = $pair.answer
+  }
+  Assert-Equal $second.__body.code 40000 '同一验证码第二次使用应失败'
+}
+
+Test-Case '同 IP 高频提交触发限流（42900）' {
+  Reset-SubscribeRate
+  $email = "rate-$script:smokeEmail"
+  $codes = @()
+  for ($i = 1; $i -le 6; $i += 1) {
+    $pair = New-CaptchaPair
+    $res = Invoke-Api -Method POST -Path '/api/portal/subscriptions' -Body @{
+      email = $email; captchaId = $pair.captchaId; captchaCode = $pair.answer
+    }
+    $codes += if ($null -ne $res.__body) { $res.__body.code } else { $res.code }
+  }
+  $allowed = @($codes | Where-Object { $_ -eq 0 }).Count
+  $limited = @($codes | Where-Object { $_ -eq 42900 }).Count
+  Assert-Equal $allowed 5 '前 5 次应放行'
+  Assert-Equal $limited 1 '第 6 次应被限流'
+  Reset-SubscribeRate
+  "6 次提交结果码 = $($codes -join ', ')（已在断言后清除限流计数，避免影响后续运行）"
+}
+
+Test-Case '订阅列表按邮箱筛选并支持删除' {
+  $token = $script:adminToken
+  $list = Invoke-Api -Method GET -Path "/api/admin/subscriptions?page=1&pageSize=20&email=$([uri]::EscapeDataString($script:smokeEmail))" -Token $token
+  Assert-Equal $list.code 0 '列表查询失败'
+  Assert-True ($list.data.total -ge 1) '应能按邮箱筛选到订阅记录'
+  $first = @($list.data.list)[0]
+  Assert-True ([bool]$first.sourceIp) '订阅记录应含来源 IP'
+  Assert-True ($null -ne $first.createdAt) '订阅记录应含订阅时间'
+
+  $deleted = Invoke-Api -Method DELETE -Path "/api/admin/subscriptions/$($first.id)" -Token $token
+  Assert-Equal $deleted.code 0 '删除订阅失败'
+  $after = Invoke-Api -Method GET -Path "/api/admin/subscriptions?page=1&pageSize=20&email=$([uri]::EscapeDataString($script:smokeEmail))" -Token $token
+  Assert-True ($after.data.total -lt $list.data.total) '删除后记录数应减少'
+  "已删除订阅 id=$($first.id)，该邮箱剩余 $($after.data.total) 条"
+}
+
+# ---------------------------------------------------------------- 4.7 分类管理
+Write-Host ''
+Write-Host '[4.7] 分类管理与前台分类接口' -ForegroundColor Yellow
+
+$script:smokeCategoryId = $null
+$script:smokeCategoryName = "冒烟分类-$((Get-Random -Minimum 1000 -Maximum 9999))"
+
+Test-Case '分类列表返回数组且含文章数' {
+  $res = Invoke-Api -Method GET -Path '/api/admin/categories' -Token $script:adminToken
+  Assert-Equal $res.code 0 '业务码应为 0'
+  Assert-True (@($res.data).Count -ge 1) '演示数据应已有分类'
+  $withArticles = @($res.data) | Where-Object { $_.articleCount -gt 0 } | Select-Object -First 1
+  Assert-True ($null -ne $withArticles) '至少应有一个分类挂有文章'
+  "分类数 = $(@($res.data).Count)，示例：$($withArticles.name)（$($withArticles.articleCount) 篇）"
+}
+
+Test-Case '新增分类 → 重名冲突 → 改名 → 删除' {
+  $created = Invoke-Api -Method POST -Path '/api/admin/categories' -Token $script:adminToken -Body @{
+    name = $script:smokeCategoryName; sort = 5
+  }
+  Assert-Equal $created.code 0 '新增分类失败'
+  $script:smokeCategoryId = $created.data.id
+  Assert-Equal $created.data.name $script:smokeCategoryName '分类名不一致'
+
+  $dup = Invoke-Api -Method POST -Path '/api/admin/categories' -Token $script:adminToken -Body @{ name = $script:smokeCategoryName }
+  Assert-Equal $dup.__body.code 40900 '重名应返回 40900'
+
+  $renamed = Invoke-Api -Method PUT -Path "/api/admin/categories/$($script:smokeCategoryId)" -Token $script:adminToken -Body @{ name = "$script:smokeCategoryName-改"; sort = 7 }
+  Assert-Equal $renamed.code 0 '改名失败'
+  Assert-Equal $renamed.data.sort 7 '排序未更新'
+
+  $removed = Invoke-Api -Method DELETE -Path "/api/admin/categories/$($script:smokeCategoryId)" -Token $script:adminToken
+  Assert-Equal $removed.code 0 '删除空分类失败'
+  $script:smokeCategoryId = $null
+  "分类 CRUD 全流程通过（名称 $script:smokeCategoryName）"
+}
+
+Test-Case '删除仍有文章的分类被拒（40900），并提示剩余文章数' {
+  $cats = Invoke-Api -Method GET -Path '/api/admin/categories' -Token $script:adminToken
+  $busy = @($cats.data) | Where-Object { $_.articleCount -gt 0 } | Select-Object -First 1
+  Assert-True ($null -ne $busy) '需要一个挂有文章的分类才能验证'
+  $res = Invoke-Api -Method DELETE -Path "/api/admin/categories/$($busy.id)" -Token $script:adminToken
+  Assert-Equal $res.__body.code 40900 '被占用的分类不应被删除'
+  Assert-True ($res.__body.message -match '\d') "错误消息应包含文章数量，实际 = $($res.__body.message)"
+  "「$($busy.name)」（$($busy.articleCount) 篇）被拒绝删除：$($res.__body.message)"
+}
+
+Test-Case '前台分类接口：总览与按分类取文章（仅已上架）' {
+  $portal = Invoke-Api -Method GET -Path '/api/portal/categories'
+  Assert-Equal $portal.code 0 '前台分类接口失败'
+  Assert-True (@($portal.data).Count -ge 1) '前台应返回分类'
+  $target = @($portal.data) | Where-Object { $_.articleCount -gt 0 } | Select-Object -First 1
+  Assert-True ($null -ne $target) '应有一个非空分类'
+
+  $articles = Invoke-Api -Method GET -Path "/api/portal/categories/$($target.id)/articles?page=1&pageSize=9"
+  Assert-Equal $articles.code 0 '按分类取文章失败'
+  Assert-True ($articles.data.total -ge 1) '该分类下应有文章'
+  $item = @($articles.data.list)[0]
+  Assert-True (-not ($item.PSObject.Properties.Name -contains 'content')) '分类文章列表不应返回正文'
+  Assert-Equal $item.categoryId $target.id '返回文章的 categoryId 应与分类一致'
+
+  $missing = Invoke-Api -Method GET -Path '/api/portal/categories/999999/articles'
+  Assert-Equal $missing.__body.code 40400 '不存在的分类应返回 40400'
+  "分类「$($target.name)」返回 $($articles.data.total) 篇"
+}
+
+# ---------------------------------------------------------------- 4.8 操作日志与权限
+Write-Host ''
+Write-Host '[4.8] 操作日志与新增权限码' -ForegroundColor Yellow
+
+Test-Case '操作日志记录了刚发生的分类新增操作' {
+  # 再新增一次分类，确保日志里有一条确定的 create 记录
+  $name = "日志验证分类-$((Get-Random -Minimum 1000 -Maximum 9999))"
+  $created = Invoke-Api -Method POST -Path '/api/admin/categories' -Token $script:adminToken -Body @{ name = $name }
+  Assert-Equal $created.code 0 '新增分类失败'
+
+  $logs = Invoke-Api -Method GET -Path '/api/admin/operation-logs?page=1&pageSize=20&module=blog:category' -Token $script:adminToken
+  Assert-Equal $logs.code 0 '操作日志查询失败'
+  # 注意：新增走的是 POST /admin/categories，路径上没有 :id，
+  # 因此 targetId 按设计为 null（拦截器只从路由参数取 targetId，不编造内容）。
+  # 这里不断言 targetId，targetId 的正确性由下面的「改名」用例覆盖。
+  $hit = @($logs.data.list) | Where-Object { $_.action -eq 'create' -and $_.result -eq 1 } | Select-Object -First 1
+  Assert-True ($null -ne $hit) '应能查到刚才的分类新增日志'
+  Assert-Equal $hit.result 1 '成功操作的 result 应为 1'
+  Assert-Equal $hit.adminUsername 'admin' '操作人账号快照应为 admin'
+  Assert-True ([bool]$hit.operationIp) '日志应记录来源 IP'
+  Assert-Equal $hit.requestMethod 'POST' '应记录 HTTP 方法'
+
+  # 带 :id 的路由必须能取到 targetId
+  $renamed = Invoke-Api -Method PUT -Path "/api/admin/categories/$($created.data.id)" -Token $script:adminToken -Body @{ name = "$name-改" }
+  Assert-Equal $renamed.code 0 '改名失败'
+  $logs2 = Invoke-Api -Method GET -Path '/api/admin/operation-logs?page=1&pageSize=20&module=blog:category' -Token $script:adminToken
+  $updateHit = @($logs2.data.list) | Where-Object { $_.action -eq 'update' -and $_.targetId -eq $created.data.id } | Select-Object -First 1
+  Assert-True ($null -ne $updateHit) "带 :id 的操作应记录 targetId（期望 $($created.data.id)）"
+  Assert-Equal $updateHit.targetType 'category' 'targetType 应为 category'
+
+  [void](Invoke-Api -Method DELETE -Path "/api/admin/categories/$($created.data.id)" -Token $script:adminToken)
+  "create 日志 id=$($hit.id)（targetId=null，符合设计）；update 日志 targetId=$($updateHit.targetId)，IP=$($hit.operationIp)"
+}
+
+Test-Case '失败的操作也会被记录（result=0 且带错误信息）' {
+  # 重名的分类新增会失败（40900），拦截器应记下失败日志
+  $cats = Invoke-Api -Method GET -Path '/api/admin/categories' -Token $script:adminToken
+  $existing = @($cats.data)[0]
+  Assert-True ($null -ne $existing) '需要一个已存在的分类'
+
+  [void](Invoke-Api -Method POST -Path '/api/admin/categories' -Token $script:adminToken -Body @{ name = $existing.name })
+
+  $logs = Invoke-Api -Method GET -Path '/api/admin/operation-logs?page=1&pageSize=20&module=blog:category&result=0' -Token $script:adminToken
+  Assert-Equal $logs.code 0 '按结果筛选失败'
+  Assert-True ($logs.data.total -ge 1) '应存在失败的操作日志'
+  $failed = @($logs.data.list)[0]
+  Assert-True ([bool]$failed.errorMessage) '失败日志应带错误信息'
+  "失败日志：$($failed.module)/$($failed.action) result=$($failed.result)，错误 = $($failed.errorMessage)"
+}
+
+Test-Case '内容编辑：可读分类列表，但不能写分类' {
+  $read = Invoke-Api -Method GET -Path '/api/admin/categories' -Token $script:editorToken
+  Assert-Equal $read.code 0 '内容编辑应能读取分类列表（写文章要选分类）'
+
+  $write = Invoke-Api -Method POST -Path '/api/admin/categories' -Token $script:editorToken -Body @{ name = '越权分类' }
+  Assert-Equal $write.__body.code 40300 '内容编辑不应能新增分类'
+  Assert-Equal $write.__httpStatus 403 'HTTP 状态码应为 403'
+}
+
+Test-Case '内容编辑：订阅列表与操作日志均被拒（40300）' {
+  $subs = Invoke-Api -Method GET -Path '/api/admin/subscriptions' -Token $script:editorToken
+  Assert-Equal $subs.__body.code 40300 '内容编辑不应能看订阅列表'
+  $logs = Invoke-Api -Method GET -Path '/api/admin/operation-logs' -Token $script:editorToken
+  Assert-Equal $logs.__body.code 40300 '内容编辑不应能看操作日志'
+}
+
+Test-Case '未登录访问新增接口一律 40100' {
+  foreach ($path in @('/api/admin/categories', '/api/admin/subscriptions', '/api/admin/operation-logs')) {
+    $res = Invoke-Api -Method GET -Path $path
+    Assert-Equal $res.__body.code 40100 "未登录访问 $path 应返回 40100"
+  }
+}
+
+Test-Case '清理本轮产生的测试数据（订阅与临时分类）' {
+  <#
+    为什么需要这一步：
+    4.6 各用例用的是同一批带随机后缀的邮箱（smoke- / blank- / once- / rate- 前缀），
+    而「删除订阅」用例只删了筛选结果里的第一条，其余几条会留在库里（实测漏留过 7 条）；
+    4.8 的断言一旦失败还会跳过它自己的清理，漏留临时分类。
+    这里按后缀与前缀统一兜底清理，让烟测可以反复运行而不污染数据。
+  #>
+  $suffix = ($script:smokeEmail -replace '^smoke-subscribe-', '')
+
+  $subs = Invoke-Api -Method GET -Path '/api/admin/subscriptions?page=1&pageSize=100' -Token $script:adminToken
+  $mySubscriptions = @($subs.data.list) | Where-Object { $_.email -like "*$suffix*" }
+  foreach ($item in $mySubscriptions) {
+    [void](Invoke-Api -Method DELETE -Path "/api/admin/subscriptions/$($item.id)" -Token $script:adminToken)
+  }
+
+  $cats = Invoke-Api -Method GET -Path '/api/admin/categories' -Token $script:adminToken
+  $leftoverCategories = @($cats.data) | Where-Object {
+    $_.name -like '日志验证分类-*' -or $_.name -like '冒烟分类-*' -or $_.name -like '越权分类*'
+  }
+  foreach ($item in $leftoverCategories) {
+    [void](Invoke-Api -Method DELETE -Path "/api/admin/categories/$($item.id)" -Token $script:adminToken)
+  }
+
+  $after = Invoke-Api -Method GET -Path '/api/admin/subscriptions?page=1&pageSize=1' -Token $script:adminToken
+  Assert-True ($after.code -eq 0) '清理后仍应能查询订阅列表'
+  "已清理订阅 $($mySubscriptions.Count) 条、临时分类 $($leftoverCategories.Count) 个；库中剩余订阅 $($after.data.total) 条"
+}
+
 # ---------------------------------------------------------------- 5. 管理功能
 Write-Host ''
 Write-Host '[5] 后台业务功能' -ForegroundColor Yellow

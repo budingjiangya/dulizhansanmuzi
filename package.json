@@ -22,12 +22,15 @@
     "typecheck": "pnpm -r typecheck",
     "verify:portal-ui": "node scripts/verify-portal-ui.mjs --url=http://localhost:5173",
     "verify:search-ui": "node scripts/verify-search-ui.mjs --url=http://localhost:5173",
+    "verify:subscribe-ui": "node scripts/verify-subscribe-category-ui.mjs --url=http://localhost:5173",
     "verify:admin-ui": "node scripts/verify-admin-ui.mjs --url=http://localhost:5173 --adminPath=/admin",
     "verify:article-edit": "node scripts/verify-article-edit-roundtrip.mjs",
-    "verify:all": "pnpm verify:portal-ui && pnpm verify:search-ui && pnpm verify:admin-ui && pnpm verify:article-edit && pnpm smoke",
+    "verify:all": "pnpm verify:portal-ui && pnpm verify:search-ui && pnpm verify:subscribe-ui && pnpm verify:admin-ui && pnpm verify:article-edit && pnpm smoke",
     "smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke.ps1"
   },
   "devDependencies": {
+    "dotenv": "16.6.1",
+    "ioredis": "5.8.1",
     "puppeteer-core": "^25.11.0"
   }
 }

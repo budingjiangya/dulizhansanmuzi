@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      dotenv:
+        specifier: 16.6.1
+        version: 16.6.1
+      ioredis:
+        specifier: 5.8.1
+        version: 5.8.1
       puppeteer-core:
         specifier: ^25.11.0
         version: 25.11.0

@@ -7,7 +7,7 @@
  * [1] 头部导航与搜索框（五个入口、路径、maxlength）
  * [2] 搜索框交互（空提交不跳转、有词跳转并带 q 参数）
  * [3] 搜索结果页（条数与接口一致、空态含关键词、点击进详情）
- * [4] 关于本站与占位页
+ * [4] 关于本站与分类/订阅入口（两个入口在 v1.3.0 已由占位页变为真实页面）
  * [5] 控制台与网络
  */
 import { existsSync, mkdirSync } from 'node:fs'
@@ -226,44 +226,78 @@ try {
   )
   check('详情页无新增控制台错误', consoleErrors.length === detailErrorsBefore, `新增=${consoleErrors.length - detailErrorsBefore}`)
 
-  // ---------------------------------------------------------------- 关于本站与占位页
+  // ---------------------------------------------------------------- 关于本站与两个导航入口
+  /*
+   * 注意：/category 与 /subscribe 在第二批（v1.3.0）之前是「即将上线」占位页，
+   * 本套件当时断言的是 `[data-testid="coming-soon"]`。第二批已把它们替换为真实页面
+   * （分类总览、订阅表单），因此这里改为断言真实页面的标志性结构，
+   * 占位组件的详细验证由 scripts/verify-subscribe-category-ui.mjs 覆盖。
+   */
   console.log('')
-  console.log('[4] 关于本站与占位页')
+  console.log('[4] 关于本站与分类/订阅入口')
   const pages = [
-    { name: '关于本站', path: '/about', expectText: '关于本站', minLength: 200 },
-    { name: '分类占位页', path: '/category', expectText: '分类', minLength: 20 },
-    { name: '邮件订阅占位页', path: '/subscribe', expectText: '邮件订阅', minLength: 20 },
+    {
+      name: '关于本站',
+      path: '/about',
+      expectText: '关于本站',
+      minLength: 200,
+      // 标志性结构：正文排版容器
+      probe: () => Boolean(document.querySelector('.prose-article')),
+      probeLabel: 'prose-article',
+    },
+    {
+      name: '分类总览页',
+      path: '/category',
+      expectText: '分类',
+      minLength: 20,
+      // 标志性结构：每个分类一个指向 /category/:id 的链接（占位页没有）
+      probe: () => document.querySelectorAll('a[href^="/category/"]').length > 0,
+      probeLabel: 'a[href^="/category/"]',
+    },
+    {
+      name: '邮件订阅页',
+      path: '/subscribe',
+      expectText: '邮件订阅',
+      minLength: 20,
+      // 标志性结构：订阅表单 + 图形验证码图片（占位页没有）
+      probe: () =>
+        Boolean(
+          document.querySelector('form') &&
+            document.querySelector('img[src^="data:image/svg+xml;base64,"]'),
+        ),
+      probeLabel: 'form + 验证码 img',
+    },
   ]
 
   for (const item of pages) {
     const errorsBefore = consoleErrors.length
     await page.goto(`${BASE_URL}${item.path}`, { waitUntil: 'networkidle2', timeout: 60000 })
-    await sleep(1500)
+    await sleep(1800)
     await page.screenshot({ path: resolve(OUT_DIR, `search-03-${item.path.replace('/', '')}.png`) })
-    const state = await page.evaluate(() => ({
-      text: (document.body.innerText ?? '').replace(/\s+/g, ' '),
-      hasProse: Boolean(document.querySelector('.prose-article')),
-      hasComingSoon: Boolean(document.querySelector('[data-testid="coming-soon"]')),
-    }))
+    const state = await page.evaluate((probeSource) => {
+      // eslint-disable-next-line no-new-func
+      const probe = new Function(`return (${probeSource})()`)()
+      return {
+        text: (document.body.innerText ?? '').replace(/\s+/g, ' '),
+        probe: Boolean(probe),
+        hasComingSoon: Boolean(document.querySelector('[data-testid="coming-soon"]')),
+      }
+    }, item.probe.toString())
+
     /*
      * 必须同时要求「渲染出了预期的组件」。
      * 只断言文本包含关键词是不可靠的：页面落到 404 时，头部导航里同样有「分类」「邮件订阅」字样，
      * 会造成假通过（实测曾经如此）。
      */
-    const expectComponent = item.path === '/about' ? state.hasProse : state.hasComingSoon
     check(
       `${item.name} 渲染成功`,
-      expectComponent &&
+      state.probe &&
+        !state.hasComingSoon &&
         state.text.includes(item.expectText) &&
         state.text.length >= item.minLength &&
         consoleErrors.length === errorsBefore,
-      `正文 ${state.text.length} 字符，prose=${state.hasProse}，comingSoon=${state.hasComingSoon}，新增报错=${consoleErrors.length - errorsBefore}`,
+      `正文 ${state.text.length} 字符，${item.probeLabel}=${state.probe}，comingSoon=${state.hasComingSoon}，新增报错=${consoleErrors.length - errorsBefore}`,
     )
-    if (item.path === '/about') {
-      check('关于本站使用正文排版（.prose-article）', state.hasProse)
-    } else {
-      check(`${item.name} 使用「即将上线」占位组件`, state.hasComingSoon)
-    }
   }
 
   // ---------------------------------------------------------------- 控制台与网络

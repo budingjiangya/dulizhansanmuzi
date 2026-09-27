@@ -176,6 +176,73 @@ curl -s "http://localhost:3000/api/portal/articles/search?keyword=%E6%98%BE%E7%A
 >
 > 影响：已上架但未推荐的文章，从此可通过直接 URL 访问（此前会 404）。首页推荐列表 `GET /api/portal/articles` 的规则（`isRecommend && isPublish`）**保持不变**。
 
+### GET /api/portal/captcha
+
+获取图形验证码（公开，无需登录，**不缓存**）。
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "captchaId": "dc30e842-29a7-4703-a70c-28654f0a589d",
+    "imageBase64": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0i..."
+  },
+  "timestamp": 1790472384870
+}
+```
+
+- `imageBase64` 是**已经编码好的 data URI**，前端直接 `<img :src="data.imageBase64">`。
+- **前端不要用 `v-html` 渲染这个 SVG**——走 `<img src>` 可以完全避免注入面。
+- `captchaId` 只是标识，不含答案。答案存在服务端 Redis，TTL **120 秒**，且**一次性使用**（校验后无论对错立即失效）。
+- 校验失败统一返回 `40000`「验证码错误或已过期」——伪造的 `captchaId` 与输错、过期返回同一个错误，不泄露「这个 id 存不存在」。
+
+### POST /api/portal/subscriptions
+
+提交邮件订阅（公开）。
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `email` | 是 | 邮箱格式，≤160 字；入库前 trim + 转小写 |
+| `message` | 否 | 留言，**选填可留空**，≤200 字 |
+| `captchaId` | 是 | 上一步拿到的验证码标识 |
+| `captchaCode` | 是 | 用户填写的验证码，大小写不敏感 |
+
+处理顺序：**校验验证码 → 同 IP 限流 → 规范化邮箱 → 判重**。
+
+| 场景 | 结果 |
+| --- | --- |
+| 验证码错误 / 过期 / 伪造 | `40000` |
+| 同 IP 一小时内超过 5 次提交 | `42900`「提交过于频繁，请稍后再试」 |
+| 邮箱此前已订阅 | `code: 0` + `data: { duplicated: true }`，**不新建记录** |
+| 新邮箱 | `code: 0` + `data: { duplicated: false }` |
+
+响应**不回显订阅明细**（邮箱与留言都不返回），只返回 `{ duplicated }`——避免任何人用这个公开接口探测「某个邮箱是否订阅过」。
+
+```bash
+# 1. 取验证码
+curl -s http://localhost:3000/api/portal/captcha
+# 2. 带上 captchaId 与图上字符提交
+curl -s -X POST http://localhost:3000/api/portal/subscriptions \
+  -H "Content-Type: application/json" \
+  -d '{"email":"me@example.com","message":"想看键盘评测","captchaId":"<上一步的 id>","captchaCode":"a1b2"}'
+```
+
+### GET /api/portal/categories
+
+全部分类（公开，不分页），按 `sort desc, id asc`。**注意有两个文章数口径**：
+
+| 字段 | 口径 | 谁用 |
+| --- | --- | --- |
+| `articleCount` | 该分类下**全部**文章（含未上架草稿） | 后台分类管理页（与删除占用校验同口径） |
+| `publishedArticleCount` | 该分类下**已上架**文章 | **前台分类页必须用这个** |
+
+前台只展示已上架文章，若前台拿 `articleCount` 显示数量，会出现「显示 5 篇、点进去只有 3 篇」的不一致。
+
+### GET /api/portal/categories/:id/articles
+
+某分类下**已上架**文章的分页列表，按 `sort desc, id desc`，**不含 `content`**。分类不存在返回 `40400`。
+
 ---
 
 ## 四、管理后台接口
@@ -301,6 +368,45 @@ curl -s "http://localhost:3000/api/portal/articles/search?keyword=%E6%98%BE%E7%A
 
 ---
 
+### 4.7 文章分类
+
+| 方法 | 路径 | 权限码 |
+| --- | --- | --- |
+| GET | `/api/admin/categories` | `blog:category:list` |
+| POST | `/api/admin/categories` | `blog:category:create` |
+| PUT | `/api/admin/categories/:id` | `blog:category:update` |
+| DELETE | `/api/admin/categories/:id` | `blog:category:delete` |
+
+- 列表返回**数组不分页**（分类是有限集合，与 `GET /api/admin/roles` 一致），含 `articleCount` 与 `publishedArticleCount`。
+- `name` 必填、≤64 字、**唯一**；重名返回 `40900`。
+- 删除前会统计该分类下的文章数：**只要有任意一篇文章（含未上架草稿）引用该分类就拒绝删除**，返回 `40900` 并写明还剩几篇。数据库层 `onDelete: Restrict` 是第二道保险，并发场景下会兜底映射为 `40900`，不会漏成 `50000`。
+- 写操作全部写入操作日志（模块 `blog:category`）。
+
+### 4.8 邮件订阅管理
+
+| 方法 | 路径 | 权限码 |
+| --- | --- | --- |
+| GET | `/api/admin/subscriptions` | `system:subscribe:list` |
+| DELETE | `/api/admin/subscriptions/:id` | `system:subscribe:delete` |
+
+- 列表分页；支持 `email` 模糊、`startTime` / `endTime` 时间区间；按 `createdAt desc, id desc` 排序。
+- 删除不存在的记录返回 `40400`；删除写入操作日志（模块 `system:subscribe`）。
+
+### 4.9 操作日志
+
+| 方法 | 路径 | 权限码 |
+| --- | --- | --- |
+| GET | `/api/admin/operation-logs` | `system:oplog:list` |
+
+- 分页；支持 `adminUsername` 模糊、`module` 精确、`result` 精确（1 成功 / 0 失败）、`startTime` / `endTime`；按 `createdAt desc, id desc` 排序。
+- **记录范围**：只记录**后台已鉴权的写操作**（POST/PUT/PATCH/DELETE），且该路由声明了 `@OperationLog` 元数据。公开接口不记录（匿名操作写审计日志没有意义，且会被刷）。
+- 业务失败**也会记录**：`result = 0` 并带上 `errorMessage`，然后原样抛出原异常，不改变错误响应。
+- 写日志与业务**在同一请求内完成**（await），不做 fire-and-forget——否则「操作后立刻查日志」会有竞态。写库失败只输出告警，**绝不影响业务响应**。
+- `targetId` 从路由参数 `:id` 读取，所以 **`POST` 新增类操作的 `targetId` 为 `null`**（路径上没有 id，不编造内容）；`PUT` / `DELETE` 类操作能正确记录目标 id。
+- `adminUsername` 存的是**操作人账号快照**：账号改名或被删除后，历史日志依然可读。
+
+---
+
 ## 五、权限码总览
 
 定义位置：`contracts/src/enums.ts`（前后端引用同一份常量）。
@@ -316,11 +422,19 @@ curl -s "http://localhost:3000/api/portal/articles/search?keyword=%E6%98%BE%E7%A
 | | `system:user:reset-password` | 重置他人密码 |
 | 角色管理 | `system:role:list` / `create` / `update` / `delete` | 角色与权限配置 |
 | 登录日志 | `system:log:list` | 登录日志查询 |
+| 分类管理 | `blog:category:list` | 查看分类列表 |
+| | `blog:category:create` | 新增分类 |
+| | `blog:category:update` | 编辑分类 |
+| | `blog:category:delete` | 删除分类 |
+| 邮件订阅 | `system:subscribe:list` | 查看订阅列表 |
+| | `system:subscribe:delete` | 删除订阅记录 |
+| 操作日志 | `system:oplog:list` | 操作日志查询 |
 
 内置角色：
 
-- **超级管理员**（`roleId = 1`）：拥有全部权限码；
-- **内容编辑**（`roleId = 2`）：仅 `blog:article:*` 五项，访问 `/api/admin/users`、`/api/admin/login-logs` 等接口会被后端直接拒绝（`40300`）。
+- **超级管理员**（`roleId = 1`）：拥有全部 22 个权限码；
+- **内容编辑**（`roleId = 2`）：`blog:article:*` 五项 + `blog:category:list`（共 6 项）。
+  额外给分类的**只读**权限是因为写文章时要选分类；但内容编辑**不能**增删改分类，也看不到邮件订阅与操作日志——访问这些接口后端直接返回 `40300`（不依赖前端隐藏菜单）。
 
 ---
 

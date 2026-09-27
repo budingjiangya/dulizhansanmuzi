@@ -28,7 +28,7 @@ import { OPERATION_LOG_KEY } from '../decorators/operation-log.decorator'
 import { getClientIp } from '../utils/ip.util'
 import { PrismaService } from '../../prisma/prisma.service'
 import type { Observable } from 'rxjs'
-import { catchError, tap, throwError } from 'rxjs'
+import { catchError, from, map, mergeMap, throwError } from 'rxjs'
 
 /** 需要记录日志的 HTTP 方法 */
 const LOGGED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -80,13 +80,22 @@ export class OperationLogInterceptor implements NestInterceptor {
     }
 
     return next.handle().pipe(
-      tap(() => {
-        void this.write({ ...base, result: 1, errorMessage: null })
-      }),
+      /*
+       * 成功：先 await 写库，再放行响应。
+       *
+       * 这里刻意不用 fire-and-forget（`void this.write(...)`）：那样「写日志」与「返回响应」
+       * 并行，调用方收到响应后立刻查日志页会偶发查不到记录 —— 验证脚本会随机失败，
+       * 进程退出时也可能丢掉尚未落库的日志。多一次 insert 的延迟换来确定性，值得。
+       */
+      mergeMap((data: unknown) =>
+        from(this.write({ ...base, result: 1, errorMessage: null })).pipe(map(() => data)),
+      ),
       catchError((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
-        void this.write({ ...base, result: 0, errorMessage: message.slice(0, 512) })
-        return throwError(() => error)
+        // 失败路径同样先 await 写库，再把原异常原样抛出（不吞异常、不改变错误响应）
+        return from(this.write({ ...base, result: 0, errorMessage: message.slice(0, 512) })).pipe(
+          mergeMap(() => throwError(() => error)),
+        )
       }),
     )
   }

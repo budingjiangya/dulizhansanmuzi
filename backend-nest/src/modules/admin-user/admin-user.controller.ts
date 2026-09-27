@@ -6,6 +6,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPip
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { PERMISSIONS, type AdminUserVo, type PageResult } from '@sanmuzi/contracts'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { OperationLog } from '../../common/decorators/operation-log.decorator'
 import { RequirePermissions } from '../../common/decorators/permissions.decorator'
 import { AdminUserService } from './admin-user.service'
 import { CreateAdminUserDto } from './dto/create-admin-user.dto'
@@ -30,6 +31,7 @@ export class AdminUserController {
   @Post()
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.SYSTEM_USER_CREATE)
+  @OperationLog({ module: 'system:user', action: 'create', targetType: 'user' })
   @ApiOperation({ summary: '新增管理员账号', description: '密码使用 bcrypt 加密；用户名重复返回 40900。' })
   @ApiBody({ type: CreateAdminUserDto })
   @ApiOkResponse({ description: '新建的 AdminUserVo' })
@@ -40,6 +42,7 @@ export class AdminUserController {
 
   @Put(':id')
   @RequirePermissions(PERMISSIONS.SYSTEM_USER_UPDATE)
+  @OperationLog({ module: 'system:user', action: 'update', targetType: 'user' })
   @ApiOperation({ summary: '编辑管理员账号', description: '不允许把最后一个启用状态的超管禁用或降级（40900）。' })
   @ApiBody({ type: UpdateAdminUserDto })
   @ApiOkResponse({ description: '更新后的 AdminUserVo' })
@@ -52,6 +55,7 @@ export class AdminUserController {
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.SYSTEM_USER_DELETE)
+  @OperationLog({ module: 'system:user', action: 'delete', targetType: 'user' })
   @ApiOperation({ summary: '删除管理员账号', description: '禁止删除自己，禁止删除最后一个超管（40900）。' })
   @ApiOkResponse({ description: '删除成功，data 为 null' })
   async remove(
@@ -64,6 +68,7 @@ export class AdminUserController {
   @Post(':id/reset-password')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.SYSTEM_USER_RESET_PWD)
+  @OperationLog({ module: 'system:user', action: 'update', targetType: 'user' })
   @ApiOperation({ summary: '重置指定账号密码', description: '新密码 bcrypt 加密后写入。' })
   @ApiBody({ type: ResetPasswordDto })
   @ApiOkResponse({ description: '重置成功，data 为 null' })

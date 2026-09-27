@@ -5,6 +5,7 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Put } from '@nestjs/common'
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { PERMISSIONS, type AdminRoleVo } from '@sanmuzi/contracts'
+import { OperationLog } from '../../common/decorators/operation-log.decorator'
 import { RequirePermissions } from '../../common/decorators/permissions.decorator'
 import { AdminRoleService } from './admin-role.service'
 import { CreateAdminRoleDto } from './dto/create-admin-role.dto'
@@ -38,6 +39,7 @@ export class AdminRoleController {
   @Post()
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.SYSTEM_ROLE_CREATE)
+  @OperationLog({ module: 'system:role', action: 'create', targetType: 'role' })
   @ApiOperation({ summary: '新增角色', description: '权限码必须来自 contracts 登记集合，非法权限码返回 40000。' })
   @ApiBody({ type: CreateAdminRoleDto })
   @ApiOkResponse({ description: '新建的 AdminRoleVo' })
@@ -47,6 +49,7 @@ export class AdminRoleController {
 
   @Put(':id')
   @RequirePermissions(PERMISSIONS.SYSTEM_ROLE_UPDATE)
+  @OperationLog({ module: 'system:role', action: 'update', targetType: 'role' })
   @ApiOperation({ summary: '编辑角色', description: '权限数组为覆盖式更新。' })
   @ApiBody({ type: UpdateAdminRoleDto })
   @ApiOkResponse({ description: '更新后的 AdminRoleVo' })
@@ -59,6 +62,7 @@ export class AdminRoleController {
 
   @Delete(':id')
   @RequirePermissions(PERMISSIONS.SYSTEM_ROLE_DELETE)
+  @OperationLog({ module: 'system:role', action: 'delete', targetType: 'role' })
   @ApiOperation({
     summary: '删除角色',
     description: '内置角色（超级管理员 / 内容编辑）与仍被账号占用的角色不允许删除（40900）。',
