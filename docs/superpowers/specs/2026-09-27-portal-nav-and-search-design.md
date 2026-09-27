@@ -49,6 +49,7 @@
 | 新增 | `backend-nest/src/modules/portal/dto/search-portal-article.dto.ts` | 搜索入参校验：`keyword` 必填、trim 后 1–50 字；分页参数 |
 | 改动 | `backend-nest/src/modules/portal/portal.controller.ts` | 新增 `@Public()` 的搜索路由 |
 | 改动 | `backend-nest/src/modules/portal/portal.service.ts` | 新增 `searchArticles()`；`nav` 数组扩展为 5 项 |
+| 改动 | `backend-nest/src/modules/blog/blog.service.ts` | `findPortalArticleDetail()` 的可见性规则对齐为「上架即可见」（见第 6 节末）；新增 `searchPortalArticles()` |
 | 改动 | `contracts/src/domain.ts` | 新增 `PortalSearchQuery` |
 | 新增 | `web-portal/src/views/SearchView.vue` | 搜索结果页（分页、空态、加载态、错误态） |
 | 新增 | `web-portal/src/views/AboutView.vue` | 关于本站（静态内容，复用 `.prose-article` 排版） |
@@ -121,6 +122,26 @@ export interface PortalSearchQuery extends PageQuery {
 
 静态内容页，分节写清：站点定位、评测原则（怎么选品、怎么给结论）、联系方式与投稿说明。排版复用 `.prose-article` 全局样式。
 
+### 可见性规则对齐（规划阶段发现的 spec 矛盾，必须一并处理）
+
+写实现计划时核对代码发现一处内部矛盾：
+
+- `BlogService.findPortalArticleDetail()` 当前要求 **`isPublish && isRecommend`** 才返回文章，否则抛 `40400`。
+- 而本设计选定的搜索范围是「全部**已上架**文章」（`isPublish = true`）。
+
+两者直接冲突：搜索会返回「已上架但未推荐」的文章，用户点进去却得到 404，表现为「搜到了但打不开」。
+
+**处理方式**：把详情接口的可见性规则对齐为「**上架即可见**」，即 `findPortalArticleDetail()` 只校验 `isPublish`，不再要求 `isRecommend`。
+
+理由：
+
+1. `isPublish` 在后台的语义就是「上架 / 下架」，`isRecommend` 的语义是「是否出现在首页推荐位」。推荐位是**展示位置**，不应兼任**访问权限**。
+2. 首页推荐列表 `findPortalArticles()` 的规则（`isRecommend && isPublish`）**保持不变**——首页仍然只展示推荐位文章。
+3. 不这样改，就无法在不破坏点击链路的前提下实现用户选定的搜索范围。
+
+影响面：已上架但未推荐的文章，从此可通过直接 URL 访问（此前会 404）。这是符合字段语义的修正，不是放宽限制。**该改动需要在更新记录中明确标注为行为变更。**
+
+
 ## 七、错误处理与边界
 
 | 场景 | 期望行为 |
@@ -130,6 +151,8 @@ export interface PortalSearchQuery extends PageQuery {
 | 无命中结果 | 结果页空态，文案包含用户输入的关键词 |
 | 后端不可用 | 复用现有 `BizError` 提示与重试入口，不白屏 |
 | 搜索结果含未上架文章 | 不允许。接口固定 `isPublish = true`，需有断言覆盖 |
+| 已上架但未推荐的文章 | 搜索结果中**会**出现，且点击后详情页必须能打开（依赖上文「可见性规则对齐」） |
+| 未上架文章的直接 URL | 仍返回 `40400`，前端显示「这篇文章不存在，或者已经下架了」 |
 | 关键词含 HTML 标签 | 不进入 `v-html`，仅作为文本插值显示，不存在注入面 |
 
 ## 八、验证方式
@@ -147,7 +170,8 @@ export interface PortalSearchQuery extends PageQuery {
 7. `/category`、`/subscribe` 占位页可访问且显示对应标题。
 8. `/about` 页面渲染成功且有正文。
 9. 搜索结果不包含未上架文章（先通过后台接口把某篇文章下架，再断言其不出现在搜索结果中，最后恢复上架）。
-10. 控制台无错误、无真实失败请求。
+10. **可见性对齐回归**：把某篇文章设为「已上架 + 取消推荐」，断言它 ① 不出现在首页列表、② 能被搜索命中、③ 详情页可直接打开；完成后恢复推荐位。
+11. 控制台无错误、无真实失败请求。
 
 ### `scripts/smoke.ps1` 扩容
 
@@ -158,6 +182,7 @@ export interface PortalSearchQuery extends PageQuery {
 3. 保证不含未上架文章（下架一篇后搜索、断言不出现、再恢复）。
 4. 空关键词 → `40000`。
 5. 不存在关键词 → `code=0` 且 `total=0`（不是错误）。
+6. **详情可见性**：未上架文章的直接 URL → `40400`；已上架未推荐文章的直接 URL → `code=0`（对齐后的规则）。
 
 ### 缓存影响
 
