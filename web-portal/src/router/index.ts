@@ -24,6 +24,32 @@ const portalRoutes: RouteRecordRaw[] = [
     meta: { title: '文章详情' },
   },
   {
+    path: '/search',
+    name: 'search',
+    component: () => import('@/views/SearchView.vue'),
+    meta: { title: '搜索' },
+  },
+  {
+    path: '/about',
+    name: 'about',
+    component: () => import('@/views/AboutView.vue'),
+    meta: { title: '关于本站' },
+  },
+  {
+    // 占位页：第二批做完分类后替换为真实页面
+    path: '/category',
+    name: 'category',
+    component: () => import('@/views/ComingSoonView.vue'),
+    meta: { title: '分类' },
+  },
+  {
+    // 占位页：第二批做完邮件订阅后替换为真实页面
+    path: '/subscribe',
+    name: 'subscribe',
+    component: () => import('@/views/ComingSoonView.vue'),
+    meta: { title: '邮件订阅' },
+  },
+  {
     path: '/not-found',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),

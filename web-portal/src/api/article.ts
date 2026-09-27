@@ -19,3 +19,19 @@ export function fetchPortalArticles(query: PortalArticleQuery = {}): Promise<Pag
 export function fetchPortalArticleDetail(id: number | string): Promise<ArticleDetailVo> {
   return httpGet<ArticleDetailVo>(`/api/portal/articles/${id}`)
 }
+
+/**
+ * 站内搜索：匹配标题、摘要与正文，覆盖全部已上架文章（不限于首页推荐位）
+ * 结果同样不含富文本正文，列表轻量化。
+ */
+export function fetchPortalSearch(query: {
+  keyword: string
+  page?: number
+  pageSize?: number
+}): Promise<PageResult<ArticleListItemVo>> {
+  return httpGet<PageResult<ArticleListItemVo>>('/api/portal/articles/search', {
+    keyword: query.keyword,
+    page: query.page ?? 1,
+    pageSize: query.pageSize ?? 9,
+  })
+}
