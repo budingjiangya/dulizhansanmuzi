@@ -166,6 +166,12 @@ export interface ArticleQuery extends PageQuery {
   endTime?: string
 }
 
+/** 前台站内搜索入参（公开接口，覆盖全部已上架文章） */
+export interface PortalSearchQuery extends PageQuery {
+  /** 搜索关键词，必填；匹配标题、摘要与富文本正文 */
+  keyword: string
+}
+
 export interface CreateArticleDto {
   title: string
   shortDesc: string
