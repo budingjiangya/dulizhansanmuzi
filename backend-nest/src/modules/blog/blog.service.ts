@@ -37,6 +37,8 @@ const LIST_SELECT = {
   isRecommend: true,
   isPublish: true,
   sort: true,
+  categoryId: true,
+  category: { select: { name: true } },
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.BlogArticleSelect
@@ -75,9 +77,12 @@ export class BlogService {
     return buildPageResult(rows.map((row) => this.toListItem(row)), total, page, pageSize)
   }
 
-  /** 管理端详情（编辑页回填，含 content） */
+  /** 管理端详情（编辑页回填，含 content 与分类名） */
   async detail(id: number): Promise<ArticleDetailVo> {
-    const row = await this.prisma.blogArticle.findUnique({ where: { id } })
+    const row = await this.prisma.blogArticle.findUnique({
+      where: { id },
+      include: { category: { select: { name: true } } },
+    })
     if (!row) throw BizException.notFound('文章不存在')
     return this.toDetail(row)
   }
@@ -86,6 +91,7 @@ export class BlogService {
   async create(dto: CreateArticleDto): Promise<ArticleDetailVo> {
     const coverImages = this.resolveCoverImages(dto.coverType, dto.coverImages)
     const coverVideo = this.resolveCoverVideo(dto.coverType, dto.coverVideo ?? null)
+    const categoryId = await this.resolveCategoryId(dto.categoryId)
 
     const created = await this.prisma.blogArticle.create({
       data: {
@@ -99,7 +105,9 @@ export class BlogService {
         isRecommend: dto.isRecommend ?? false,
         isPublish: dto.isPublish ?? false,
         sort: dto.sort ?? 0,
+        categoryId,
       },
+      include: { category: { select: { name: true } } },
     })
     await this.clearPortalCache(`新增文章 id=${created.id}`)
     return this.toDetail(created)
@@ -128,7 +136,9 @@ export class BlogService {
         ...(dto.isRecommend !== undefined ? { isRecommend: dto.isRecommend } : {}),
         ...(dto.isPublish !== undefined ? { isPublish: dto.isPublish } : {}),
         ...(dto.sort !== undefined ? { sort: dto.sort } : {}),
+        ...(dto.categoryId !== undefined ? { categoryId: await this.resolveCategoryId(dto.categoryId) } : {}),
       },
+      include: { category: { select: { name: true } } },
     })
 
     // 切换封面类型后做一次完整性校验（例如 image -> video 但没传视频地址）
@@ -153,7 +163,11 @@ export class BlogService {
   /** 上下架切换 */
   async togglePublish(id: number, value: boolean): Promise<ArticleListItemVo> {
     await this.assertExists(id)
-    const updated = await this.prisma.blogArticle.update({ where: { id }, data: { isPublish: value } })
+    const updated = await this.prisma.blogArticle.update({
+      where: { id },
+      data: { isPublish: value },
+      include: { category: { select: { name: true } } },
+    })
     await this.clearPortalCache(`上下架切换 id=${id} -> ${value}`)
     return this.toListItem(updated)
   }
@@ -161,7 +175,11 @@ export class BlogService {
   /** 首页推荐切换 */
   async toggleRecommend(id: number, value: boolean): Promise<ArticleListItemVo> {
     await this.assertExists(id)
-    const updated = await this.prisma.blogArticle.update({ where: { id }, data: { isRecommend: value } })
+    const updated = await this.prisma.blogArticle.update({
+      where: { id },
+      data: { isRecommend: value },
+      include: { category: { select: { name: true } } },
+    })
     await this.clearPortalCache(`推荐位切换 id=${id} -> ${value}`)
     return this.toListItem(updated)
   }
@@ -169,7 +187,11 @@ export class BlogService {
   /** 更新排序权重 */
   async updateSort(id: number, sort: number): Promise<ArticleListItemVo> {
     await this.assertExists(id)
-    const updated = await this.prisma.blogArticle.update({ where: { id }, data: { sort } })
+    const updated = await this.prisma.blogArticle.update({
+      where: { id },
+      data: { sort },
+      include: { category: { select: { name: true } } },
+    })
     await this.clearPortalCache(`排序更新 id=${id} -> ${sort}`)
     return this.toListItem(updated)
   }
@@ -240,7 +262,10 @@ export class BlogService {
    * 推荐位是展示位置，不应兼任访问权限 —— 否则「已上架但未推荐」的文章会被站内搜索命中却打不开。
    */
   async findPortalArticleDetail(id: number): Promise<ArticleDetailVo> {
-    const row = await this.prisma.blogArticle.findUnique({ where: { id } })
+    const row = await this.prisma.blogArticle.findUnique({
+      where: { id },
+      include: { category: { select: { name: true } } },
+    })
     if (!row || !row.isPublish) {
       throw BizException.notFound('文章不存在或已下架')
     }
@@ -299,9 +324,23 @@ export class BlogService {
     return value
   }
 
+  /**
+   * 校验并解析分类 id
+   * undefined / null 表示未分类，返回 null；
+   * 传了 id 但分类不存在时抛 40000（比让 Prisma 抛 P2003 映射成 40900 更准确）。
+   */
+  private async resolveCategoryId(categoryId: number | null | undefined): Promise<number | null> {
+    if (categoryId === undefined || categoryId === null) return null
+    const exists = await this.prisma.blogCategory.findUnique({
+      where: { id: categoryId },
+      select: { id: true },
+    })
+    if (!exists) throw BizException.paramInvalid('所选分类不存在')
+    return categoryId
+  }
+
   /** 清理前台列表缓存（写操作后必须调用） */
-  private async clearPortalCache(reason: string): Promise<void> {
-    const deleted = await this.redis.delByPrefix(PORTAL_ARTICLES_CACHE_KEY)
+  private async clearPortalCache(reason: string): Promise<void> {    const deleted = await this.redis.delByPrefix(PORTAL_ARTICLES_CACHE_KEY)
     this.logger.log(`已清理前台文章缓存（${reason}），删除 ${deleted} 个 key`)
   }
 
@@ -318,6 +357,8 @@ export class BlogService {
       isRecommend: Boolean(row.isRecommend),
       isPublish: Boolean(row.isPublish),
       sort: row.sort,
+      categoryId: row.categoryId ?? null,
+      categoryName: row.category?.name ?? null,
       createdAt: formatDateTime(row.createdAt) ?? '',
       updatedAt: formatDateTime(row.updatedAt) ?? '',
     }

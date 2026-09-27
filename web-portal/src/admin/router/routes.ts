@@ -61,6 +61,12 @@ export const businessRoutes: RouteRecordRaw[] = [
         meta: { title: '编辑文章', icon: 'edit', permission: 'blog:article:update', hideInMenu: true },
       },
       {
+        path: '/admin/blog/categories',
+        name: 'admin-blog-category-list',
+        component: () => import('@/admin/views/blog/CategoryListView.vue'),
+        meta: { title: '分类管理', icon: 'category', permission: 'blog:category:list' },
+      },
+      {
         path: '/admin/system/users',
         name: 'admin-system-user-list',
         component: () => import('@/admin/views/system/UserListView.vue'),
@@ -77,6 +83,18 @@ export const businessRoutes: RouteRecordRaw[] = [
         name: 'admin-system-login-log',
         component: () => import('@/admin/views/system/LoginLogView.vue'),
         meta: { title: '登录日志', icon: 'log', permission: 'system:log:list' },
+      },
+      {
+        path: '/admin/system/subscriptions',
+        name: 'admin-system-subscription-list',
+        component: () => import('@/admin/views/system/SubscriptionListView.vue'),
+        meta: { title: '邮件订阅', icon: 'mail', permission: 'system:subscribe:list' },
+      },
+      {
+        path: '/admin/system/operation-logs',
+        name: 'admin-system-operation-log',
+        component: () => import('@/admin/views/system/OperationLogView.vue'),
+        meta: { title: '操作日志', icon: 'audit', permission: 'system:oplog:list' },
       },
       {
         path: '/admin/profile/password',

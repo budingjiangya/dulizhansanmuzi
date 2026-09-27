@@ -176,7 +176,7 @@ fetchPortalCategoryArticles(id: number | string, query?: { page?: number; pageSi
 **写入范围：** `backend-nest/src/modules/blog-category/**`、`backend-nest/src/modules/operation-log/**`、`backend-nest/src/common/interceptors/operation-log.interceptor.ts`、`backend-nest/src/common/decorators/operation-log.decorator.ts`
 **允许的最小改动：** 在各 controller 上加 `@OperationLog` 装饰器（只加装饰器，不改业务逻辑）；`blog.service.ts` 增加 `categoryId` 的读写与 `categoryName` 回填。
 
-**Produces:** 接口 `GET/POST/PUT/DELETE /api/admin/categories`、`GET /api/admin/operation-logs`；拦截器与装饰器
+**Produces:** 接口 `GET/POST/PUT/DELETE /api/admin/categories`、`GET /api/admin/operation-logs`、**`GET /api/portal/categories`**、**`GET /api/portal/categories/:id/articles`**（后两个是前台分类页要用的公开端点，冻结前端 API 层时补入契约）；拦截器与装饰器
 
 - [ ] **Step 1: `@OperationLog` 装饰器**
   - `OPERATION_LOG_KEY = 'operation_log_meta'`；`OperationLogMeta = { module: string; action: string; targetType?: string }`。

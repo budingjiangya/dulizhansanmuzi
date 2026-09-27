@@ -4,21 +4,25 @@
  */
 import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
-import { APP_GUARD } from '@nestjs/core'
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { ServeStaticModule } from '@nestjs/serve-static'
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard'
 import { PermissionsGuard } from './common/guards/permissions.guard'
+import { OperationLogInterceptor } from './common/interceptors/operation-log.interceptor'
 import { configuration, UPLOAD_ROOT } from './config/configuration'
 import { AdminRoleModule } from './modules/admin-role/admin-role.module'
 import { AdminUserModule } from './modules/admin-user/admin-user.module'
 import { AuthModule } from './modules/auth/auth.module'
+import { BlogCategoryModule } from './modules/blog-category/blog-category.module'
 import { BlogModule } from './modules/blog/blog.module'
 import { DashboardModule } from './modules/dashboard/dashboard.module'
 import { FileStorageModule } from './modules/file-storage/file-storage.module'
 import { LoginLogModule } from './modules/login-log/login-log.module'
+import { OperationLogModule } from './modules/operation-log/operation-log.module'
 import { PortalModule } from './modules/portal/portal.module'
 import { PrismaModule } from './prisma/prisma.module'
 import { RedisModule } from './redis/redis.module'
+import { SubscriptionModule } from './modules/subscription/subscription.module'
 
 @Module({
   imports: [
@@ -45,6 +49,9 @@ import { RedisModule } from './redis/redis.module'
     AdminRoleModule,
     LoginLogModule,
     BlogModule,
+    BlogCategoryModule,
+    SubscriptionModule,
+    OperationLogModule,
     PortalModule,
     DashboardModule,
     FileStorageModule,
@@ -53,6 +60,8 @@ import { RedisModule } from './redis/redis.module'
     // 全局守卫顺序：先鉴权（JwtAuthGuard），再鉴权码校验（PermissionsGuard）
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // 操作日志拦截器：注册在全局拦截器链中，只对声明了 @OperationLog 的后台写操作生效
+    { provide: APP_INTERCEPTOR, useClass: OperationLogInterceptor },
   ],
 })
 export class AppModule {}

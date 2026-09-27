@@ -76,9 +76,20 @@ interface ArticleSeed {
   shortDesc: string
   coverType: string
   sort: number
+  /** 所属分类名，必须出现在 CATEGORIES 中 */
+  category: string
   videoIndex?: number
   body: { heading: string; paragraphs: string[]; quote: string; bullets: string[]; closing: string }
 }
+
+/** 演示分类（sort 越大越靠前） */
+const CATEGORIES: Array<{ name: string; sort: number }> = [
+  { name: '显示器', sort: 50 },
+  { name: '音频', sort: 40 },
+  { name: '桌面', sort: 30 },
+  { name: '家居', sort: 20 },
+  { name: '影音', sort: 10 },
+]
 
 const ARTICLES: ArticleSeed[] = [
   {
@@ -87,6 +98,7 @@ const ARTICLES: ArticleSeed[] = [
       '我们自费买了六台 4K 显示器，从色准、亮度、接口、支架到售后逐项实测，帮你按预算直接锁定最合适的那一台。',
     coverType: CoverType.IMAGE,
     sort: 60,
+    category: '显示器',
     body: {
       heading: '先定尺寸，再定面板',
       paragraphs: [
@@ -109,6 +121,7 @@ const ARTICLES: ArticleSeed[] = [
       '我们把四款热门降噪耳机带上早高峰地铁，实测低频轰鸣抑制、通话降噪与佩戴舒适度，告诉你差价究竟差在哪里。',
     coverType: CoverType.IMAGE,
     sort: 50,
+    category: '音频',
     body: {
       heading: '降噪深度不等于体验',
       paragraphs: [
@@ -131,6 +144,7 @@ const ARTICLES: ArticleSeed[] = [
       '从腰托支撑、坐深调节到网面回弹，我们连续坐满 30 天实测四把椅子，总结出一份不踩坑的选购清单与调校方法。',
     coverType: CoverType.VIDEO,
     sort: 40,
+    category: '家居',
     videoIndex: 0,
     body: {
       heading: '腰托比头枕重要得多',
@@ -154,6 +168,7 @@ const ARTICLES: ArticleSeed[] = [
       '我们实测了三台千元级便携投影仪的亮度、对焦速度与噪音表现，并给出卧室、出租屋与露营三种场景的真实购买建议。',
     coverType: CoverType.VIDEO,
     sort: 30,
+    category: '影音',
     videoIndex: 1,
     body: {
       heading: '亮度决定上限，环境决定下限',
@@ -177,6 +192,7 @@ const ARTICLES: ArticleSeed[] = [
       '从触发压力、触底手感讲到宿舍与办公室的噪音边界，用最直白的方式帮你选出第一把不会后悔的机械键盘。',
     coverType: CoverType.IMAGE,
     sort: 20,
+    category: '桌面',
     body: {
       heading: '先想清楚在哪里用',
       paragraphs: [
@@ -199,6 +215,7 @@ const ARTICLES: ArticleSeed[] = [
       '我们用照度计和频闪测试仪对比了五款智能台灯，告诉你哪些参数真的影响用眼舒适度，哪些只是营销话术。',
     coverType: CoverType.IMAGE,
     sort: 10,
+    category: '桌面',
     body: {
       heading: '看三个硬指标就够了',
       paragraphs: [
@@ -300,14 +317,19 @@ async function downloadVideo(url: string, fileName: string): Promise<string | nu
 async function main(): Promise<void> {
   console.log('[seed] ================ 开始写入种子数据 ================')
 
-  // 1. 清空旧数据（顺序：登录日志 -> 文章 -> 用户 -> 角色）
+  // 1. 清空旧数据（顺序：订阅 -> 登录日志 -> 文章 -> 用户 -> 角色 -> 分类）
+  //    文章必须先于分类删除（分类被文章引用时数据库会拒绝删除）。
+  //    操作日志作为审计记录**不清空**：它是「谁改过什么」的凭证，不应被演示数据重置抹掉。
+  const deletedSubscriptions = await prisma.blogSubscription.deleteMany()
   const deletedLogs = await prisma.adminLoginLog.deleteMany()
   const deletedArticles = await prisma.blogArticle.deleteMany()
   const deletedUsers = await prisma.adminUser.deleteMany()
   const deletedRoles = await prisma.adminRole.deleteMany()
+  const deletedCategories = await prisma.blogCategory.deleteMany()
   console.log(
-    `[seed] 已清理旧数据：登录日志 ${deletedLogs.count} 条、文章 ${deletedArticles.count} 篇、账号 ${deletedUsers.count} 个、角色 ${deletedRoles.count} 个`,
+    `[seed] 已清理旧数据：订阅 ${deletedSubscriptions.count} 条、登录日志 ${deletedLogs.count} 条、文章 ${deletedArticles.count} 篇、账号 ${deletedUsers.count} 个、角色 ${deletedRoles.count} 个、分类 ${deletedCategories.count} 个`,
   )
+  console.log('[seed] 操作日志已保留（审计记录不随演示数据重置清空）')
 
   // 2. 内置角色
   await prisma.adminRole.create({
@@ -390,11 +412,26 @@ async function main(): Promise<void> {
     console.log('[seed] SEED_DOWNLOAD_VIDEO 未开启，视频类文章使用远程示例地址与占位封面帧')
   }
 
-  // 5. 写入 6 篇演示文章
+  // 5. 演示分类（必须先于文章写入，文章要引用分类 id）
+  const categoryIdByName = new Map<string, number>()
+  for (const category of CATEGORIES) {
+    const created = await prisma.blogCategory.create({
+      data: { name: category.name, sort: category.sort },
+    })
+    categoryIdByName.set(created.name, created.id)
+  }
+  console.log(`[seed] 分类写入完成：共 ${CATEGORIES.length} 个（${CATEGORIES.map((item) => item.name).join(' / ')}）`)
+
+  // 6. 写入 6 篇演示文章
   let videoArticleIndex = 0
   for (let index = 0; index < ARTICLES.length; index += 1) {
     const article = ARTICLES[index]
     if (!article) continue
+
+    const categoryId = categoryIdByName.get(article.category)
+    if (categoryId === undefined) {
+      throw new Error(`文章「${article.title}」引用了未定义的分类「${article.category}」`)
+    }
 
     const isVideo = article.coverType === CoverType.VIDEO
     const videoSlot = article.videoIndex ?? videoArticleIndex
@@ -428,14 +465,15 @@ async function main(): Promise<void> {
         isRecommend: true,
         isPublish: true,
         sort: article.sort,
+        categoryId,
       },
     })
     if (isVideo) videoArticleIndex += 1
   }
   const articleCount = await prisma.blogArticle.count()
-  console.log(`[seed] 文章写入完成：共 ${articleCount} 篇（推荐+已上架，sort 60/50/40/30/20/10）`)
+  console.log(`[seed] 文章写入完成：共 ${articleCount} 篇（推荐+已上架，sort 60/50/40/30/20/10，均已归入分类）`)
 
-  // 6. 约 30 条登录日志，覆盖最近 7 天
+  // 7. 约 30 条登录日志，覆盖最近 7 天
   const accountIds = [admin.id, editor.id]
   const logRows: Array<{ adminUserId: number; loginIp: string; loginResult: number; loginTime: Date }> = []
   const totalLogs = 30
@@ -452,7 +490,7 @@ async function main(): Promise<void> {
   const logCount = await prisma.adminLoginLog.count()
   console.log(`[seed] 登录日志写入完成：共 ${logCount} 条（覆盖最近 7 天，含成功与失败）`)
 
-  // 7. 结果汇总
+  // 8. 结果汇总
   console.log('[seed] ================ 种子数据写入完成 ================')
   console.log(`[seed] 超管账号：${ADMIN_ACCOUNT.username} / ${ADMIN_ACCOUNT.password}`)
   console.log(`[seed] 编辑账号：${EDITOR_ACCOUNT.username} / ${EDITOR_ACCOUNT.password}`)

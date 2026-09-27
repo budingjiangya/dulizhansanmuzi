@@ -42,6 +42,13 @@ const menuOptions = computed<MenuOption[]>(() => {
       icon: renderIcon('edit'),
     })
   }
+  if (userStore.hasPermission(PERMISSIONS.BLOG_CATEGORY_LIST)) {
+    blogChildren.push({
+      key: 'blog-category-list',
+      label: renderLink('/admin/blog/categories', '分类管理'),
+      icon: renderIcon('category'),
+    })
+  }
   if (blogChildren.length) {
     options.push({
       key: 'blog',
@@ -71,6 +78,20 @@ const menuOptions = computed<MenuOption[]>(() => {
       key: 'system-login-log',
       label: renderLink('/admin/system/login-logs', '登录日志'),
       icon: renderIcon('log'),
+    })
+  }
+  if (userStore.hasPermission(PERMISSIONS.SYSTEM_SUBSCRIBE_LIST)) {
+    systemChildren.push({
+      key: 'system-subscription-list',
+      label: renderLink('/admin/system/subscriptions', '邮件订阅'),
+      icon: renderIcon('mail'),
+    })
+  }
+  if (userStore.hasPermission(PERMISSIONS.SYSTEM_OPLOG_LIST)) {
+    systemChildren.push({
+      key: 'system-operation-log',
+      label: renderLink('/admin/system/operation-logs', '操作日志'),
+      icon: renderIcon('audit'),
     })
   }
   if (systemChildren.length) {

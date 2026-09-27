@@ -168,6 +168,13 @@
 | DELETE | `/api/admin/subscriptions/:id` | `system:subscribe:delete` |
 | GET | `/api/admin/operation-logs` | `system:oplog:list` |
 
+以下两个是**前台公开**端点，供分类页使用（冻结前端 API 层时补入契约）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/portal/categories` | 全部分类（不分页，含 `articleCount`），排序 `sort desc, id asc` |
+| GET | `/api/portal/categories/:id/articles` | 该分类下**已上架**文章的分页列表，`sort desc, id desc`，不含 `content`；分类不存在返回 `40400` |
+
 - 分类列表返回数组（与 `GET /api/admin/roles` 一致，不分页），并带 `articleCount`。
 - 分类删除：被文章占用时返回 `40900`，消息说明还有几篇文章在用。
 - 订阅列表：分页，支持按 `email` 模糊、`startTime` / `endTime` 筛选。

@@ -19,8 +19,9 @@ model AdminUser {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  role      AdminRole       @relation(fields: [roleId], references: [id])
-  loginLogs AdminLoginLog[]
+  role          AdminRole          @relation(fields: [roleId], references: [id])
+  loginLogs     AdminLoginLog[]
+  operationLogs AdminOperationLog[]
 
   @@index([roleId])
   @@map("admin_user")
@@ -67,10 +68,68 @@ model BlogArticle {
   isRecommend     Boolean  @default(false) /// 是否首页推荐
   isPublish       Boolean  @default(false) /// 上下架状态
   sort            Int      @default(0) /// 首页排序权重，数字越大越靠前
+  categoryId      Int? /// 所属分类，null 表示未分类
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  category BlogCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
   @@index([isRecommend, isPublish, sort])
   @@index([createdAt])
+  @@index([categoryId])
   @@map("blog_article")
+}
+
+/// 文章分类
+model BlogCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(64)
+  sort      Int      @default(0) /// 排序权重，越大越靠前
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articles BlogArticle[]
+
+  @@index([sort])
+  @@map("blog_category")
+}
+
+/// 邮件订阅（前台公开提交，后台可查看与删除）
+model BlogSubscription {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique @db.VarChar(160) /// 已规范化（trim + 小写）
+  message   String?  @db.Text /// 用户留言，可留空
+  sourceIp  String   @db.VarChar(128) /// 提交来源 IP
+  userAgent String?  @db.VarChar(512)
+  status    Int      @default(1) /// 1 有效 / 0 已退订（预留）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@map("blog_subscription")
+}
+
+/// 后台操作日志（只记录已鉴权的后台写操作）
+model AdminOperationLog {
+  id            Int      @id @default(autoincrement())
+  adminUserId   Int? /// 操作人 id；账号被删除后置空，但日志保留
+  adminUsername String   @db.VarChar(64) /// 操作人账号快照
+  module        String   @db.VarChar(32) /// 模块，如 blog:category
+  action        String   @db.VarChar(32) /// 动作，如 create / update / delete
+  targetType    String?  @db.VarChar(32)
+  targetId      Int?
+  summary       String?  @db.VarChar(255)
+  requestMethod String   @db.VarChar(8)
+  requestPath   String   @db.VarChar(255)
+  operationIp   String   @db.VarChar(128)
+  result        Int /// 1 成功 / 0 失败
+  errorMessage  String?  @db.VarChar(512)
+  createdAt     DateTime @default(now())
+
+  adminUser AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([adminUserId])
+  @@index([module])
+  @@index([createdAt])
+  @@map("admin_operation_log")
 }

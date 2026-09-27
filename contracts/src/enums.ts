@@ -44,6 +44,16 @@ export const PERMISSIONS = {
   SYSTEM_ROLE_DELETE: 'system:role:delete',
   /* 登录日志 */
   SYSTEM_LOG_LIST: 'system:log:list',
+  /* 分类管理 */
+  BLOG_CATEGORY_LIST: 'blog:category:list',
+  BLOG_CATEGORY_CREATE: 'blog:category:create',
+  BLOG_CATEGORY_UPDATE: 'blog:category:update',
+  BLOG_CATEGORY_DELETE: 'blog:category:delete',
+  /* 邮件订阅 */
+  SYSTEM_SUBSCRIBE_LIST: 'system:subscribe:list',
+  SYSTEM_SUBSCRIBE_DELETE: 'system:subscribe:delete',
+  /* 操作日志 */
+  SYSTEM_OPLOG_LIST: 'system:oplog:list',
 } as const
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS]
@@ -93,6 +103,29 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: '登录日志',
     items: [{ code: PERMISSIONS.SYSTEM_LOG_LIST, label: '日志查询' }],
   },
+  {
+    key: 'category',
+    label: '分类管理',
+    items: [
+      { code: PERMISSIONS.BLOG_CATEGORY_LIST, label: '分类列表' },
+      { code: PERMISSIONS.BLOG_CATEGORY_CREATE, label: '新增分类' },
+      { code: PERMISSIONS.BLOG_CATEGORY_UPDATE, label: '编辑分类' },
+      { code: PERMISSIONS.BLOG_CATEGORY_DELETE, label: '删除分类' },
+    ],
+  },
+  {
+    key: 'subscribe',
+    label: '邮件订阅',
+    items: [
+      { code: PERMISSIONS.SYSTEM_SUBSCRIBE_LIST, label: '订阅列表' },
+      { code: PERMISSIONS.SYSTEM_SUBSCRIBE_DELETE, label: '删除订阅' },
+    ],
+  },
+  {
+    key: 'oplog',
+    label: '操作日志',
+    items: [{ code: PERMISSIONS.SYSTEM_OPLOG_LIST, label: '日志查询' }],
+  },
 ]
 
 /** 超管拥有全部权限码 */
@@ -100,13 +133,18 @@ export const ALL_PERMISSIONS: PermissionCode[] = PERMISSION_GROUPS.flatMap((grou
   group.items.map((item) => item.code),
 )
 
-/** 内容编辑只拥有文章增删改查与上传 */
+/**
+ * 内容编辑的权限
+ * 除文章增删改查与上传外，额外需要 `blog:category:list` —— 写文章时要选分类。
+ * 但不包含分类的增删改，也不包含订阅与操作日志（那些属于超管）。
+ */
 export const CONTENT_EDITOR_PERMISSIONS: PermissionCode[] = [
   PERMISSIONS.BLOG_ARTICLE_LIST,
   PERMISSIONS.BLOG_ARTICLE_CREATE,
   PERMISSIONS.BLOG_ARTICLE_UPDATE,
   PERMISSIONS.BLOG_ARTICLE_DELETE,
   PERMISSIONS.BLOG_ARTICLE_UPLOAD,
+  PERMISSIONS.BLOG_CATEGORY_LIST,
 ]
 
 /* ------------------------------------------------------------------ *

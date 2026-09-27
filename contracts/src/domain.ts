@@ -148,6 +148,10 @@ export interface ArticleListItemVo {
   isRecommend: boolean
   isPublish: boolean
   sort: number
+  /** 所属分类 id，未分类为 null */
+  categoryId: number | null
+  /** 所属分类名，未分类为 null（列表与详情都回填，避免前端再查一次） */
+  categoryName: string | null
   createdAt: string
   updatedAt: string
 }
@@ -183,6 +187,8 @@ export interface CreateArticleDto {
   isRecommend?: boolean
   isPublish?: boolean
   sort?: number
+  /** 所属分类 id；null 或省略表示未分类 */
+  categoryId?: number | null
 }
 
 export type UpdateArticleDto = Partial<CreateArticleDto>
@@ -302,4 +308,112 @@ export interface DashboardStatsVo {
   loginFailToday: number
   /** 最近 7 天登录趋势 */
   loginTrend: Array<{ date: string; success: number; fail: number }>
+}
+
+/* ------------------------------------------------------------------ *
+ * 分类（后台管理 + 前台展示共用）
+ * ------------------------------------------------------------------ */
+
+export interface CategoryVo {
+  id: number
+  name: string
+  /** 排序权重，越大越靠前 */
+  sort: number
+  /** 该分类下的文章数量（用于前台展示与后台删除前提示） */
+  articleCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateCategoryDto {
+  name: string
+  sort?: number
+}
+
+export type UpdateCategoryDto = Partial<CreateCategoryDto>
+
+/* ------------------------------------------------------------------ *
+ * 邮件订阅（图形验证码 + 公开提交）
+ * ------------------------------------------------------------------ */
+
+export interface CaptchaVo {
+  /** 验证码标识，提交时原样回传；本身不含答案 */
+  captchaId: string
+  /** 已编码好的 data URI，前端直接用于 <img src>，不要走 v-html */
+  imageBase64: string
+}
+
+export interface SubscribeDto {
+  email: string
+  /** 留言，选填，可留空 */
+  message?: string
+  captchaId: string
+  captchaCode: string
+}
+
+export interface SubscribeResultVo {
+  /** true 表示该邮箱此前已订阅，本次未新建记录 */
+  duplicated: boolean
+}
+
+export interface SubscriptionVo {
+  id: number
+  email: string
+  message: string | null
+  sourceIp: string
+  userAgent: string | null
+  status: number
+  createdAt: string
+}
+
+export interface QuerySubscriptionDto extends PageQuery, TimeRangeQuery {
+  email?: string
+}
+
+/* ------------------------------------------------------------------ *
+ * 操作日志（后台写操作的审计记录）
+ * ------------------------------------------------------------------ */
+
+export interface OperationLogVo {
+  id: number
+  adminUserId: number | null
+  /** 操作人账号快照：账号改名或删除后日志仍可读 */
+  adminUsername: string
+  /** 模块，如 blog:category */
+  module: string
+  /** 动作，如 create / update / delete */
+  action: string
+  targetType: string | null
+  targetId: number | null
+  summary: string | null
+  requestMethod: string
+  requestPath: string
+  operationIp: string
+  /** 1 成功 / 0 失败 */
+  result: number
+  errorMessage: string | null
+  createdAt: string
+}
+
+export interface QueryOperationLogDto extends PageQuery, TimeRangeQuery {
+  adminUsername?: string
+  module?: string
+  /** 1 成功 / 0 失败 */
+  result?: number
+}
+
+/** 拦截器写入操作日志的入参（业务代码不直接构造，由拦截器组装） */
+export interface OperationLogEntry {
+  adminUserId: number | null
+  adminUsername: string
+  module: string
+  action: string
+  targetType?: string | null
+  targetId?: number | null
+  summary?: string | null
+  requestMethod: string
+  requestPath: string
+  operationIp: string
+  result: number
+  errorMessage?: string | null
 }

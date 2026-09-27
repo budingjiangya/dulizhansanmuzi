@@ -91,4 +91,14 @@ export class CreateArticleDto implements ICreateArticleDto {
   @Transform(({ value }: { value: unknown }) => (value === '' || value === null ? undefined : Number(value)))
   @IsInt({ message: '排序权重必须是整数' })
   sort?: number
+
+  @ApiPropertyOptional({ description: '所属分类 id；传 null 或省略表示未分类', example: 1, nullable: true })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    // 显式传 null / 空串表示「清除分类」，返回 null 而不是 undefined
+    if (value === null || value === '') return null
+    return Number(value)
+  })
+  @IsInt({ message: '分类 id 必须是整数' })
+  categoryId?: number | null
 }

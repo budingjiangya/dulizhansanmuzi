@@ -50,4 +50,9 @@ export function httpGet<T>(url: string, params?: Record<string, unknown>): Promi
   return http.get(url, { params }) as unknown as Promise<T>
 }
 
+/** 类型化 POST：返回 data 段 */
+export function httpPost<T>(url: string, data?: unknown): Promise<T> {
+  return http.post(url, data) as unknown as Promise<T>
+}
+
 export default http

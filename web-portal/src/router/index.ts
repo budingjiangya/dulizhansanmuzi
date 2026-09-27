@@ -36,17 +36,23 @@ const portalRoutes: RouteRecordRaw[] = [
     meta: { title: '关于本站' },
   },
   {
-    // 占位页：第二批做完分类后替换为真实页面
+    // 第二批：占位页已替换为真实的分类总览页
     path: '/category',
     name: 'category',
-    component: () => import('@/views/ComingSoonView.vue'),
+    component: () => import('@/views/CategoryListView.vue'),
     meta: { title: '分类' },
   },
   {
-    // 占位页：第二批做完邮件订阅后替换为真实页面
+    path: '/category/:id',
+    name: 'category-detail',
+    component: () => import('@/views/CategoryDetailView.vue'),
+    meta: { title: '分类文章' },
+  },
+  {
+    // 第二批：占位页已替换为真实的订阅表单页
     path: '/subscribe',
     name: 'subscribe',
-    component: () => import('@/views/ComingSoonView.vue'),
+    component: () => import('@/views/SubscribeView.vue'),
     meta: { title: '邮件订阅' },
   },
   {
