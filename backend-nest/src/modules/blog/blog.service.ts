@@ -197,10 +197,51 @@ export class BlogService {
     return { list: rows.map((row) => this.toListItem(row)), total }
   }
 
-  /** 前台文章详情：未上架或未推荐按 40400 处理 */
+  /**
+   * 前台站内搜索：匹配标题、摘要与正文，覆盖全部已上架文章
+   *
+   * 注意：正文使用 LIKE '%kw%' 匹配，无法使用索引。当前内容量下无性能问题；
+   * 内容规模上来后应改用 MySQL 全文索引（FULLTEXT + MATCH ... AGAINST）或外部搜索引擎。
+   * 排序按编辑权重 sort desc、更新时间 updatedAt desc，未做相关性打分。
+   */
+  async searchPortalArticles(
+    keyword: string,
+    page: number,
+    pageSize: number,
+  ): Promise<{ list: ArticleListItemVo[]; total: number }> {
+    const { skip, take } = normalizePaging(page, pageSize)
+    const where = {
+      isPublish: true,
+      OR: [
+        { title: { contains: keyword } },
+        { shortDesc: { contains: keyword } },
+        { content: { contains: keyword } },
+      ],
+    }
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.blogArticle.count({ where }),
+      this.prisma.blogArticle.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ sort: 'desc' }, { updatedAt: 'desc' }],
+        select: LIST_SELECT,
+      }),
+    ])
+
+    return { list: rows.map((row) => this.toListItem(row)), total }
+  }
+
+  /**
+   * 前台文章详情：未上架按 40400 处理
+   *
+   * 可见性规则：isPublish 决定「能否被访问」，isRecommend 只决定「是否出现在首页推荐位」。
+   * 推荐位是展示位置，不应兼任访问权限 —— 否则「已上架但未推荐」的文章会被站内搜索命中却打不开。
+   */
   async findPortalArticleDetail(id: number): Promise<ArticleDetailVo> {
     const row = await this.prisma.blogArticle.findUnique({ where: { id } })
-    if (!row || !row.isPublish || !row.isRecommend) {
+    if (!row || !row.isPublish) {
       throw BizException.notFound('文章不存在或已下架')
     }
     return this.toDetail(row)

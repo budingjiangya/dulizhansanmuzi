@@ -117,6 +117,8 @@ Test-Case '搜索命中：标题/摘要/正文均可匹配' {
 
 Test-Case '搜索结果不含富文本正文' {
   $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%E6%98%BE%E7%A4%BA%E5%99%A8'
+  Assert-Equal $res.code 0 '业务码应为 0'
+  Assert-True (@($res.data.list).Count -ge 1) 'list 不能为空（否则下面的字段断言无意义）'
   $first = @($res.data.list)[0]
   Assert-True (-not ($first.PSObject.Properties.Name -contains 'content')) '搜索结果不应返回正文 content'
   "字段数 = $(@($first.PSObject.Properties.Name).Count)"
@@ -124,18 +126,25 @@ Test-Case '搜索结果不含富文本正文' {
 
 Test-Case '搜索无命中返回空列表而不是错误' {
   $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=zzz-no-such-article-zzz'
-  Assert-Equal $res.code 0 '业务码应为 0'
+  Assert-Equal $res.code 0 '业务码应为 0（无命中不是错误）'
+  Assert-True ($null -ne $res.data) '应返回 data 段'
   Assert-Equal $res.data.total 0 '不应命中任何文章'
+  Assert-Equal @($res.data.list).Count 0 'list 应为空数组'
 }
 
 Test-Case '搜索关键词为空返回 40000' {
   $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword='
   Assert-Equal $res.__body.code 40000 '应返回参数校验错误 40000'
+  # 断言消息确实来自关键词校验，而不是路由冲突：
+  # 若 articles/:id 吞掉了 search，ParseIntPipe 的消息是
+  # "Validation failed (numeric string is expected)"，不含「关键词」
+  Assert-True ($res.__body.message -like '*关键词*') "错误消息应来自关键词校验，实际 = $($res.__body.message)"
 }
 
 Test-Case '搜索关键词全空格返回 40000' {
   $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%20%20%20'
   Assert-Equal $res.__body.code 40000 'trim 后为空应返回 40000'
+  Assert-True ($res.__body.message -like '*关键词*') "错误消息应来自关键词校验，实际 = $($res.__body.message)"
 }
 
 Test-Case '可见性对齐：已上架未推荐文章可搜索、可打开、但不进首页' {
@@ -153,8 +162,9 @@ Test-Case '可见性对齐：已上架未推荐文章可搜索、可打开、但
   $id = $created.data.id
 
   try {
-    $home = Invoke-Api -Method GET -Path '/api/portal/articles?page=1&pageSize=50'
-    $inHome = @($home.data.list) | Where-Object { $_.id -eq $id }
+    # 注意：变量名不能用 $home —— PowerShell 的 $HOME 是只读自动变量，赋值会直接报错
+    $homeList = Invoke-Api -Method GET -Path '/api/portal/articles?page=1&pageSize=50'
+    $inHome = @($homeList.data.list) | Where-Object { $_.id -eq $id }
     Assert-True ($null -eq $inHome) '未推荐文章不应出现在首页列表'
 
     $search = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%E5%8F%AF%E8%A7%81%E6%80%A7%E5%AF%B9%E9%BD%90%E6%A0%B7%E6%9C%AC'
@@ -185,7 +195,10 @@ Test-Case '可见性对齐：已上架未推荐文章可搜索、可打开、但
 先确认后端在运行（`node dist/main.js`），然后：
 
 Run: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke.ps1`
-Expected: 新增 6 项中至少 4 项 FAIL（`articles/search` 路由还不存在，会落到 `articles/:id` 返回 400/40400）
+Expected: 新增 6 项**全部 FAIL**。因为此时 `articles/search` 路由还不存在，请求会落到 `articles/:id`，
+`ParseIntPipe` 解析 `"search"` 失败返回 `40000` 与 "Validation failed (numeric string is expected)"。
+注意：若断言只检查「业务码为 40000」或「不含 content」，这种情况下会**假通过** ——
+所以上面的断言额外加了 `code = 0` 前置检查与「错误消息含『关键词』」检查来区分二者。
 
 - [ ] **Step 3: 新建搜索 DTO**
 

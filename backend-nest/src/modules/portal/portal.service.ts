@@ -15,6 +15,7 @@ import type { AppConfiguration } from '../../config/configuration'
 import { RedisService } from '../../redis/redis.service'
 import { BlogService } from '../blog/blog.service'
 import type { QueryPortalArticleDto } from './dto/query-portal-article.dto'
+import type { SearchPortalArticleDto } from './dto/search-portal-article.dto'
 
 /** 站点配置缓存 key（配置来自环境变量，进程内固定，无需过期） */
 const SITE_CONFIG_CACHE_KEY = 'cache:portal:site-config'
@@ -42,6 +43,9 @@ export class PortalService {
       nav: [
         { label: '首页', path: '/' },
         { label: '全部推荐', path: '/#recommendations' },
+        { label: '分类', path: '/category' },
+        { label: '关于本站', path: '/about' },
+        { label: '邮件订阅', path: '/subscribe' },
       ],
       footerText: `© ${new Date().getFullYear()} 三目子 · 产品推荐`,
       icp: '',
@@ -76,7 +80,20 @@ export class PortalService {
     return result
   }
 
-  /** 文章详情（含 content），未上架/未推荐按 40400 */
+  /**
+   * 站内搜索
+   *
+   * 与首页列表不同，这里覆盖全部已上架文章，且**不做 Redis 缓存**：
+   * 每个不同关键词都会产生一个缓存键，命中率极低且会污染缓存空间。
+   */
+  async searchArticles(query: SearchPortalArticleDto): Promise<PageResult<ArticleListItemVo>> {
+    const { page, pageSize } = normalizePaging(query.page, query.pageSize)
+    const keyword = query.keyword.trim()
+    const { list, total } = await this.blogService.searchPortalArticles(keyword, page, pageSize)
+    return buildPageResult(list, total, page, pageSize)
+  }
+
+  /** 文章详情（含 content），未上架按 40400 */
   async getArticleDetail(id: number): Promise<ArticleDetailVo> {
     return this.blogService.findPortalArticleDetail(id)
   }

@@ -361,6 +361,92 @@ Test-Case '内容编辑可正常访问文章列表' {
   "返回 $($res.data.list.Count) / 共 $($res.data.total) 篇"
 }
 
+# ---------------------------------------------------------------- 4.5 站内搜索
+Write-Host ''
+Write-Host '[4.5] 站内搜索与可见性对齐' -ForegroundColor Yellow
+
+Test-Case '搜索命中：标题/摘要/正文均可匹配' {
+  $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%E6%98%BE%E7%A4%BA%E5%99%A8&page=1&pageSize=9'
+  Assert-Equal $res.code 0 '业务码应为 0'
+  Assert-True ($res.data.total -ge 1) '关键词「显示器」应至少命中 1 篇演示文章'
+  Assert-True (@($res.data.list).Count -ge 1) 'list 不能为空'
+  "命中 $($res.data.total) 篇，首篇 = 「$(@($res.data.list)[0].title)」"
+}
+
+Test-Case '搜索结果不含富文本正文' {
+  $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%E6%98%BE%E7%A4%BA%E5%99%A8'
+  Assert-Equal $res.code 0 '业务码应为 0'
+  Assert-True (@($res.data.list).Count -ge 1) 'list 不能为空（否则下面的字段断言无意义）'
+  $first = @($res.data.list)[0]
+  Assert-True (-not ($first.PSObject.Properties.Name -contains 'content')) '搜索结果不应返回正文 content'
+  "字段数 = $(@($first.PSObject.Properties.Name).Count)"
+}
+
+Test-Case '搜索无命中返回空列表而不是错误' {
+  $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=zzz-no-such-article-zzz'
+  Assert-Equal $res.code 0 '业务码应为 0（无命中不是错误）'
+  Assert-True ($null -ne $res.data) '应返回 data 段'
+  Assert-Equal $res.data.total 0 '不应命中任何文章'
+  Assert-Equal @($res.data.list).Count 0 'list 应为空数组'
+}
+
+Test-Case '搜索关键词为空返回 40000' {
+  $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword='
+  Assert-Equal $res.__body.code 40000 '应返回参数校验错误 40000'
+  # 断言消息确实来自关键词校验，而不是路由冲突：
+  # 若 articles/:id 吞掉了 search，ParseIntPipe 的消息是
+  # "Validation failed (numeric string is expected)"，不含「关键词」
+  Assert-True ($res.__body.message -like '*关键词*') "错误消息应来自关键词校验，实际 = $($res.__body.message)"
+}
+
+Test-Case '搜索关键词全空格返回 40000' {
+  $res = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%20%20%20'
+  Assert-Equal $res.__body.code 40000 'trim 后为空应返回 40000'
+  Assert-True ($res.__body.message -like '*关键词*') "错误消息应来自关键词校验，实际 = $($res.__body.message)"
+}
+
+Test-Case '可见性对齐：已上架未推荐文章可搜索、可打开、但不进首页' {
+  $created = Invoke-Api -Method POST -Path '/api/admin/articles' -Token $script:adminToken -Body @{
+    title       = '可见性对齐测试文章（可安全删除）'
+    shortDesc   = '用于验证「上架即可见、推荐位只管首页展示」的规则。'
+    coverType   = 'image'
+    coverImages = @('https://picsum.photos/seed/visibility/1200/800')
+    content     = '<p>可见性对齐测试正文关键字：可见性对齐样本</p>'
+    isRecommend = $false
+    isPublish   = $true
+    sort        = 0
+  }
+  Assert-Equal $created.code 0 '创建测试文章失败'
+  $id = $created.data.id
+
+  try {
+    # 注意：变量名不能用 $home —— PowerShell 的 $HOME 是只读自动变量，赋值会直接报错
+    $homeList = Invoke-Api -Method GET -Path '/api/portal/articles?page=1&pageSize=50'
+    $inHome = @($homeList.data.list) | Where-Object { $_.id -eq $id }
+    Assert-True ($null -eq $inHome) '未推荐文章不应出现在首页列表'
+
+    $search = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%E5%8F%AF%E8%A7%81%E6%80%A7%E5%AF%B9%E9%BD%90%E6%A0%B7%E6%9C%AC'
+    $inSearch = @($search.data.list) | Where-Object { $_.id -eq $id }
+    Assert-True ($null -ne $inSearch) '已上架文章应能被搜索命中（含正文匹配）'
+
+    $detail = Invoke-Api -Method GET -Path "/api/portal/articles/$id"
+    Assert-Equal $detail.code 0 '已上架未推荐文章详情应可打开（可见性对齐）'
+
+    $offline = Invoke-Api -Method PATCH -Path "/api/admin/articles/$id/publish" -Token $script:adminToken -Body @{ value = $false }
+    Assert-Equal $offline.code 0 '下架失败'
+
+    $searchAfterOffline = Invoke-Api -Method GET -Path '/api/portal/articles/search?keyword=%E5%8F%AF%E8%A7%81%E6%80%A7%E5%AF%B9%E9%BD%90%E6%A0%B7%E6%9C%AC'
+    $stillThere = @($searchAfterOffline.data.list) | Where-Object { $_.id -eq $id }
+    Assert-True ($null -eq $stillThere) '下架后不应再被搜索命中'
+
+    $detailOffline = Invoke-Api -Method GET -Path "/api/portal/articles/$id"
+    Assert-Equal $detailOffline.__body.code 40400 '下架后详情应返回 40400'
+    "测试文章 ID = $id（未推荐可搜索、下架后不可见）"
+  } finally {
+    [void](Invoke-Api -Method DELETE -Path "/api/admin/articles/$id" -Token $script:adminToken)
+  }
+}
+
 # ---------------------------------------------------------------- 5. 管理功能
 Write-Host ''
 Write-Host '[5] 后台业务功能' -ForegroundColor Yellow
